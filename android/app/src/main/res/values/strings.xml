@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Financial Manager</string>
+    <string name="setup_explainer">This app talks to the Financial Manager server you run yourself. Enter its address to connect.</string>
+    <string name="server_address">Server address</string>
+    <string name="server_hint">192.168.1.20:8000</string>
+    <string name="connect">Connect</string>
+    <string name="checking">Checking…</string>
+    <string name="enter_address">Enter your server address</string>
+    <string name="cannot_reach">Couldn\'t reach %1$s. Check the address, and that your phone is on the same network as the server.</string>
+    <string name="setup_footnote">Your data stays on your own server. This app only displays it.</string>
+    <string name="cannot_connect_title">Can\'t reach the server</string>
+    <string name="cannot_connect_body">%1$s didn\'t respond. It may be switched off, or your phone may be on a different network.</string>
+    <string name="retry">Retry</string>
+    <string name="change_server">Change address</string>
+    <string name="downloading">Downloading…</string>
+    <string name="download_failed">Download failed</string>
+    <string name="no_file_picker">No file picker available</string>
+    <string name="no_browser">No browser installed to open that link</string>
+</resources>

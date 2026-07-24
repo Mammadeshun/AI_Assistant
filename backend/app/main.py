@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import get_settings
 from .db import init_db
 from .providers.base import ConsentExpired, ProviderError
-from .routers import accounts, analytics, auth, budgeting, connections, transactions
+from .routers import accounts, ai, analytics, auth, budgeting, connections, transactions
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -47,6 +47,7 @@ app.include_router(accounts.router)
 app.include_router(transactions.router)
 app.include_router(budgeting.router)
 app.include_router(analytics.router)
+app.include_router(ai.router)
 
 
 @app.exception_handler(ConsentExpired)
@@ -78,3 +79,19 @@ if FRONTEND_DIR.is_dir():
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(FRONTEND_DIR / "index.html")
+
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker() -> FileResponse:
+        # Must be served from the root for the worker to control the whole app;
+        # a worker at /static/ would only ever see /static/ requests.
+        return FileResponse(
+            FRONTEND_DIR / "sw.js",
+            media_type="application/javascript",
+            headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"},
+        )
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def manifest() -> FileResponse:
+        return FileResponse(
+            FRONTEND_DIR / "manifest.webmanifest", media_type="application/manifest+json"
+        )

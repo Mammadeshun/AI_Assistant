@@ -11,6 +11,10 @@ is never sent anywhere except to the bank API you connect.
 
 ## What it does
 
+- **Runs on your phone** — install the Android APK, or add the web app to your
+  home screen. Both talk to the server you run.
+- **Answers questions about your money** — an AI assistant with read-only access
+  to your own transactions. Optional, and off until you add an API key.
 - **Connects to Revolut** — personal accounts via Open Banking, business accounts
   via Revolut's own API, or neither (CSV import works standalone).
 - **Categorises automatically** — merchant keywords, Revolut's own transaction
@@ -23,6 +27,41 @@ is never sent anywhere except to the bank API you connect.
   month, categories that jumped, budgets blown, cash flow negative.
 - **Search, edit, export** — full transaction history, filterable, exportable
   back out to CSV.
+
+## Installing on your phone
+
+Two ways, both pointing at the server you run.
+
+### The Android app
+
+Grab `dist/financial-manager-release.apk` from this repo, copy it to your phone,
+and open it. Android will ask you to allow installing from this source — that's
+expected for an app that isn't from the Play Store.
+
+On first launch it asks for your server's address (for example
+`192.168.1.20:8000`). It checks the address responds before saving it.
+
+To build it yourself:
+
+```bash
+./build-apk.sh          # needs a JDK, Gradle, and an Android SDK (platform 35)
+```
+
+The APK is signed with Android's standard debug key, which is enough to install
+it on your own device. Sign it with your own key before distributing it anywhere.
+
+The app is a native shell around the same web UI, which means CSV import, CSV
+export and the assistant all work as they do in a browser. One deliberate
+exception: **bank authorisation links open in your real browser**, because banks
+reject login pages inside an embedded app view. Approve access there, and the
+connection is waiting when you switch back.
+
+### Or: add it to your home screen
+
+The web app is installable as a PWA. Open it in Chrome or Safari and choose
+"Add to home screen" — you get the same icon and full-screen app, with no APK to
+sideload. The app shell is cached so it opens instantly; financial data never is,
+so you can't be shown a stale balance.
 
 ## Getting started
 
@@ -93,6 +132,42 @@ Download**. Then **Accounts → Add manual account**, and **Import CSV** on it.
 Re-importing an overlapping file is safe — rows are deduplicated on a hash of
 date, amount, description and reference, so you never get doubles.
 
+## The AI assistant
+
+Optional and off by default. Add `ANTHROPIC_API_KEY` to your `.env` and three
+things turn on.
+
+**Ask questions about your own money.** The Assistant tab is a chat backed by
+Claude with eight read-only tools over your database — transaction search,
+spending summaries, category breakdowns, cash flow, recurring payments, budgets,
+accounts and top merchants. Ask "how much did I spend on groceries this year" or
+"what are my biggest subscriptions" and it queries your real figures rather than
+guessing. Each answer shows which tools it consulted, so you can check its work.
+
+It is deliberately narrow: those eight query tools are the entire surface it can
+reach. It cannot move money, change a transaction, alter a rule, or browse the
+web — there is no tool for any of that. It is also told to say when your data
+doesn't answer the question, instead of estimating.
+
+**Sort out messy merchants.** *Rules → Ask AI to sort the rest* takes the
+merchant names the built-in rules couldn't place and asks Claude to identify
+them. Each answer is saved as an ordinary rule, so it costs one call per new
+merchant rather than one per transaction, and you can inspect, edit or delete
+what it decided. Low-confidence guesses are discarded rather than applied.
+
+**A written monthly read.** The dashboard can generate a few sentences on how the
+month is going, from this month's figures and last month's.
+
+### What is sent, and what isn't
+
+Only what a question needs: merchant names, dates, amounts, category totals.
+Never your account numbers, IBANs, credentials, or who you are. Nothing is sent
+at all until you set an API key — and if you never set one, every other feature
+in this app works exactly as before.
+
+Model and effort are configurable (`AI_MODEL`, `AI_EFFORT`). The default is
+Claude Opus 5 at medium effort.
+
 ## How categorisation works
 
 Three layers, first match wins:
@@ -147,9 +222,13 @@ backend/app/
     sync.py            fetch → dedupe → upsert
     categorise.py      rules, provider hints, keyword heuristics
     analytics.py       summaries, cash flow, budgets, recurring detection
+    ai.py              Claude: merchant categorisation, written briefing
+    ai_agent.py        Claude: chat, and the read-only tools it may call
   routers/           HTTP endpoints
-frontend/            single-page client, no build step
-tests/               88 tests
+frontend/            single-page client, no build step; installable as a PWA
+android/             native Android shell around the web UI
+dist/                prebuilt APK
+tests/               119 tests
 ```
 
 Adding another bank means writing one module in `providers/` — nothing above
@@ -162,9 +241,11 @@ pip install -r requirements-dev.txt
 pytest
 ```
 
-88 tests covering money arithmetic, CSV shapes, categorisation precedence,
-sync idempotency, analytics maths, and the API's auth boundaries. Bank APIs are
-mocked with `respx`; no test touches the network.
+119 tests covering money arithmetic, CSV shapes, categorisation precedence,
+sync idempotency, analytics maths, the API's auth boundaries, and the AI layer —
+including that a refusal is never read as an answer, that the model cannot invent
+a merchant to write a rule for, and that low-confidence guesses are discarded.
+Bank and Claude APIs are both mocked; no test touches the network.
 
 API docs, while the app is running: <http://localhost:8000/docs>.
 
@@ -175,5 +256,7 @@ API docs, while the app is running: <http://localhost:8000/docs>.
 - **No FX conversion**, by design (see above).
 - **Read-only.** No payments, transfers or standing-order changes.
 - **Single user per instance.**
+- **AI answers are only as good as your data.** The assistant reads what has been
+  synced or imported — it cannot see an account you haven't connected.
 - Open Banking gives you up to 730 days of history, depending on what the bank
   returns. CSV import is the way to go further back.

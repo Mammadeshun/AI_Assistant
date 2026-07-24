@@ -1,0 +1,46 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.financialmanager.app"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.financialmanager.app"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "1.0.0"
+    }
+
+    buildTypes {
+        release {
+            // Signed with the debug key so `assembleRelease` produces an installable
+            // APK without a keystore. Replace signingConfig before publishing anywhere.
+            signingConfig signingConfigs.debug
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Kotlin 1.8 folded the jdk7/jdk8 stdlib artifacts into kotlin-stdlib itself.
+// A transitive dependency still asks for the old 1.6.21 jdk8 artifact, which then
+// duplicates every class the merged stdlib already provides. Pinning them to the
+// same version turns the old artifact back into an empty shim.
+configurations.configureEach {
+    resolutionStrategy {
+        force "org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.22"
+        force "org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.22"
+    }
+}
+
+dependencies {
+    // Only appcompat: the WebView comes from the platform (android.webkit).
+    implementation "androidx.appcompat:appcompat:1.7.0"
+}

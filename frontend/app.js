@@ -5,6 +5,8 @@ const state = {
   view: "dashboard",
   categories: [],
   accounts: [],
+  ai: { enabled: false, model: "", reason: null },
+  chat: { threadId: null, messages: [], busy: false },
   txFilters: { search: "", account_id: "", category_id: "", direction: "", offset: 0, limit: 50 },
 };
 
@@ -278,12 +280,126 @@ const views = {
         <div class="card"><h2>Where the money went</h2>${donutChart(data.by_category)}</div>
       </div>
 
+      ${state.ai.enabled ? `
+      <div class="card briefing-card" style="margin-bottom:1rem">
+        <div class="card-head"><h2>Your month, in a sentence or two</h2>
+          <button class="btn btn-sm" id="briefing-btn">Write it</button></div>
+        <div id="briefing-body" class="muted small">
+          Reads this month's totals and last month's, and tells you what changed.
+        </div>
+      </div>` : ""}
+
       <div class="grid grid-2">
         <div class="card"><h2>What stands out</h2><div class="stack">${insights}</div></div>
         <div class="card"><h2>Budgets</h2><div class="stack">${budgets}</div></div>
         <div class="card"><h2>Top merchants this month</h2>${merchants}</div>
         ${otherCurrencies}
       </div>`;
+
+    const briefingBtn = root.querySelector("#briefing-btn");
+    briefingBtn?.addEventListener("click", async () => {
+      const body = root.querySelector("#briefing-body");
+      briefingBtn.disabled = true;
+      body.textContent = "Writing…";
+      try {
+        const result = await api("/api/ai/briefing", { method: "POST" });
+        body.classList.remove("muted", "small");
+        body.innerHTML = formatReply(result.text);
+      } catch (error) {
+        body.textContent = error.message;
+      } finally {
+        briefingBtn.disabled = false;
+      }
+    });
+  },
+
+  /* --- assistant ---------------------------------------------------- */
+  async assistant(root) {
+    if (!state.ai.enabled) {
+      root.innerHTML = `
+        <div class="card">
+          <h2>The assistant is switched off</h2>
+          <p class="muted">${escapeHtml(state.ai.reason || "No API key configured.")}</p>
+          <p class="small muted">Add an Anthropic API key to your <code>.env</code> as
+            <code>ANTHROPIC_API_KEY</code> and restart the app. Until you do, nothing about
+            your finances is sent anywhere — every other feature works without it.</p>
+        </div>`;
+      return;
+    }
+
+    const threads = await api("/api/ai/threads");
+    root.innerHTML = `
+      <div class="chat-layout">
+        <div class="card chat-card">
+          <div id="chat-log" class="chat-log"></div>
+          <form id="chat-form" class="chat-input">
+            <input name="message" placeholder="Ask about your money…" autocomplete="off"
+                   maxlength="4000" required />
+            <button class="btn btn-primary" type="submit" id="chat-send">Ask</button>
+          </form>
+          <p class="small muted chat-note">
+            Reads your transactions to answer. It cannot move money or change anything.
+          </p>
+        </div>
+        <div class="card chat-side">
+          <div class="card-head"><h2>Conversations</h2>
+            <button class="btn btn-sm" id="chat-new">New</button></div>
+          <div class="stack" id="thread-list">${
+            threads.length ? threads.map((thread) => `
+              <div class="row-between small thread-row">
+                <button class="btn btn-link thread-open" data-thread="${thread.id}"
+                        style="text-align:left">${escapeHtml(thread.title)}</button>
+                <button class="btn btn-sm btn-danger" data-delete-thread="${thread.id}">✕</button>
+              </div>`).join("") : `<p class="muted small">No conversations yet.</p>`}
+          </div>
+          <h3 style="margin-top:1.25rem">Try asking</h3>
+          <div class="stack">${[
+            "How much did I spend last month?",
+            "What are my biggest subscriptions?",
+            "Where did my money go this month?",
+            "Am I spending more than I earn?",
+            "What did I spend on groceries this year?",
+          ].map((question) => `
+            <button class="btn btn-sm suggestion" style="text-align:left">${escapeHtml(question)}</button>`).join("")}
+          </div>
+        </div>
+      </div>`;
+
+    renderChatLog();
+
+    root.querySelector("#chat-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const input = event.target.elements.message;
+      const message = input.value.trim();
+      if (!message || state.chat.busy) return;
+      input.value = "";
+      await sendChat(message);
+    });
+
+    root.querySelector("#chat-new").addEventListener("click", () => {
+      state.chat = { threadId: null, messages: [], busy: false };
+      render();
+    });
+
+    root.querySelectorAll(".suggestion").forEach((button) =>
+      button.addEventListener("click", () => sendChat(button.textContent.trim())));
+
+    root.querySelectorAll(".thread-open").forEach((button) =>
+      button.addEventListener("click", async () => {
+        const id = Number(button.dataset.thread);
+        const messages = await api(`/api/ai/threads/${id}`);
+        state.chat = { threadId: id, messages, busy: false };
+        renderChatLog();
+      }));
+
+    root.querySelectorAll("[data-delete-thread]").forEach((button) =>
+      button.addEventListener("click", async () => {
+        await api(`/api/ai/threads/${button.dataset.deleteThread}`, { method: "DELETE" });
+        if (state.chat.threadId === Number(button.dataset.deleteThread)) {
+          state.chat = { threadId: null, messages: [], busy: false };
+        }
+        render();
+      }));
   },
 
   /* --- transactions ------------------------------------------------ */
@@ -553,7 +669,14 @@ const views = {
       <div class="grid grid-2">
         <div class="card">
           <div class="card-head"><h2>Your rules</h2>
-            <button class="btn btn-sm" id="recategorise-btn">Re-run on history</button></div>
+            <span class="inline">
+              ${state.ai.enabled
+                ? `<button class="btn btn-sm" id="ai-categorise-btn">Ask AI to sort the rest</button>` : ""}
+              <button class="btn btn-sm" id="recategorise-btn">Re-run on history</button>
+            </span></div>
+          ${state.ai.enabled ? `<p class="small muted" style="margin-top:-.4rem">
+            Claude names the merchants the built-in rules couldn't place and saves each
+            answer as a rule below — one call per new merchant, not per transaction.</p>` : ""}
           <div class="stack">${
             rules.length ? rules.map((rule) => {
               const category = state.categories.find((c) => c.id === rule.category_id);
@@ -641,8 +764,111 @@ const views = {
       const result = await api("/api/transactions/recategorise", { method: "POST" });
       toast(`Re-categorised ${result.updated} transactions`, "success");
     });
+
+    root.querySelector("#ai-categorise-btn")?.addEventListener("click", async (event) => {
+      event.target.disabled = true;
+      event.target.textContent = "Working…";
+      try {
+        const result = await api("/api/ai/categorise", { method: "POST" });
+        if (!result.merchants_reviewed) {
+          toast("Nothing left uncategorised", "success");
+        } else {
+          toast(
+            `Reviewed ${result.merchants_reviewed} merchants, wrote ${result.rules_created} rules, ` +
+            `re-categorised ${result.transactions_recategorised} transactions`,
+            "success",
+          );
+        }
+        render();
+      } catch (error) {
+        toast(error.message, "error");
+        event.target.disabled = false;
+        event.target.textContent = "Ask AI to sort the rest";
+      }
+    });
   },
 };
+
+/* ------------------------------------------------------------------ */
+/* Chat                                                                */
+/* ------------------------------------------------------------------ */
+function renderChatLog() {
+  const log = document.getElementById("chat-log");
+  if (!log) return;
+
+  if (!state.chat.messages.length && !state.chat.busy) {
+    log.innerHTML = `<div class="chat-empty">
+      <p>Ask anything about your own transactions — spending, trends, subscriptions,
+         a merchant you don't recognise.</p>
+      <p class="small muted">Answers come from your database, not from guesswork.
+         Figures it can't find, it will tell you it can't find.</p>
+    </div>`;
+    return;
+  }
+
+  log.innerHTML = state.chat.messages.map((message) => {
+    const tools = (message.tool_calls || []).length
+      ? `<details class="tool-trace"><summary>Looked at ${message.tool_calls.length} source(s)</summary>
+           <ul>${message.tool_calls.map((call) => `
+             <li><code>${escapeHtml(call.name)}</code>
+               ${Object.keys(call.input || {}).length
+                 ? `<span class="muted">${escapeHtml(JSON.stringify(call.input))}</span>` : ""}
+             </li>`).join("")}</ul></details>`
+      : "";
+    return `<div class="chat-msg ${message.role}">
+      <div class="chat-bubble">${formatReply(message.content)}${tools}</div>
+    </div>`;
+  }).join("") + (state.chat.busy
+    ? `<div class="chat-msg assistant"><div class="chat-bubble thinking">
+         <span class="dot-pulse"></span> checking your transactions…</div></div>`
+    : "");
+
+  log.scrollTop = log.scrollHeight;
+}
+
+function formatReply(text) {
+  // Minimal, safe rendering: escape everything, then allow paragraphs,
+  // simple bullet lists and `code` spans.
+  const escaped = escapeHtml(text);
+  const withCode = escaped.replace(/`([^`]+)`/g, "<code>$1</code>");
+  const blocks = withCode.split(/\n{2,}/).map((block) => {
+    const lines = block.split("\n");
+    if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+      return `<ul>${lines.map((line) => `<li>${line.replace(/^\s*[-*]\s+/, "")}</li>`).join("")}</ul>`;
+    }
+    return `<p>${lines.join("<br>")}</p>`;
+  });
+  return blocks.join("");
+}
+
+async function sendChat(message) {
+  if (state.chat.busy) return;
+  state.chat.busy = true;
+  state.chat.messages.push({ role: "user", content: message, tool_calls: [] });
+  renderChatLog();
+
+  try {
+    const response = await api("/api/ai/chat", {
+      method: "POST",
+      body: { message, thread_id: state.chat.threadId },
+    });
+    state.chat.threadId = response.thread_id;
+    state.chat.messages.push({
+      role: "assistant",
+      content: response.reply,
+      tool_calls: response.tool_calls,
+    });
+  } catch (error) {
+    state.chat.messages.push({
+      role: "assistant",
+      content: `That didn't work: ${error.message}`,
+      tool_calls: [],
+    });
+  } finally {
+    state.chat.busy = false;
+    renderChatLog();
+  }
+}
 
 function budgetRow(budget) {
   const share = Math.min(budget.used_share, 1);
@@ -882,19 +1108,22 @@ async function syncConnection(connectionId) {
 /* Shell                                                               */
 /* ------------------------------------------------------------------ */
 async function loadReferenceData() {
-  const [categories, accounts] = await Promise.all([
+  const [categories, accounts, ai] = await Promise.all([
     api("/api/categories"),
     api("/api/accounts"),
+    api("/api/ai/status").catch(() => ({ enabled: false, reason: "AI status unavailable" })),
   ]);
   state.categories = categories;
   state.accounts = accounts;
+  state.ai = ai;
 }
 
 async function render() {
   const root = document.getElementById("view");
   document.getElementById("view-title").textContent =
-    { dashboard: "Dashboard", transactions: "Transactions", budgets: "Budgets",
-      recurring: "Recurring payments", accounts: "Accounts & connections", rules: "Rules" }[state.view];
+    { dashboard: "Dashboard", assistant: "Assistant", transactions: "Transactions",
+      budgets: "Budgets", recurring: "Recurring payments",
+      accounts: "Accounts & connections", rules: "Rules" }[state.view];
 
   root.innerHTML = `<p class="empty">Loading…</p>`;
   try {
@@ -923,7 +1152,38 @@ async function showApp() {
   await render();
 }
 
+/* ------------------------------------------------------------------ */
+/* Installable app (PWA)                                               */
+/* ------------------------------------------------------------------ */
+function setupInstall() {
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* offline shell is a bonus, not a requirement */
+    });
+  }
+
+  let deferredPrompt = null;
+  const button = document.getElementById("install-btn");
+
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    button.classList.remove("hidden");
+  });
+
+  button.addEventListener("click", async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    await deferredPrompt.userChoice;
+    deferredPrompt = null;
+    button.classList.add("hidden");
+  });
+
+  window.addEventListener("appinstalled", () => button.classList.add("hidden"));
+}
+
 async function boot() {
+  setupInstall();
   document.getElementById("modal-close").addEventListener("click", closeModal);
   document.getElementById("modal-backdrop").addEventListener("click", (event) => {
     if (event.target.id === "modal-backdrop") closeModal();

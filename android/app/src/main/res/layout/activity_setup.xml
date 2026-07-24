@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0F1115"
+    android:fitsSystemWindows="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:padding="28dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="#E7E9EE"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:layout_marginTop="48dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_explainer"
+            android:textColor="#949CAD"
+            android:textSize="14sp"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="28dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/server_address"
+            android:textColor="#949CAD"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/server_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/server_hint"
+            android:textColorHint="#5C6474"
+            android:textColor="#E7E9EE"
+            android:inputType="textUri"
+            android:imeOptions="actionGo"
+            android:maxLines="1"
+            android:padding="14dp"
+            android:layout_marginTop="6dp"
+            android:background="#1E222B"
+            android:autofillHints="" />
+
+        <Button
+            android:id="@+id/connect"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/connect"
+            android:layout_marginTop="18dp"
+            android:backgroundTint="#6AA9FF"
+            android:textColor="#07101F" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#F87171"
+            android:textSize="13sp"
+            android:layout_marginTop="14dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/setup_footnote"
+            android:textColor="#5C6474"
+            android:textSize="12sp"
+            android:layout_marginTop="28dp"
+            android:layout_marginBottom="24dp" />
+    </LinearLayout>
+</ScrollView>

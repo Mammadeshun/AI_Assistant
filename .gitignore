@@ -21,3 +21,11 @@ venv/
 .DS_Store
 .idea/
 .vscode/
+
+# android build outputs (the shipped APK in dist/ is committed deliberately)
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.keystore
+*.jks

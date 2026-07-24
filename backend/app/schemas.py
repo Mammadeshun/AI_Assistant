@@ -234,3 +234,56 @@ class ImportResponse(BaseModel):
     parsed: int
     added: int
     updated: int
+
+
+# --- AI -------------------------------------------------------------------
+class AIStatus(BaseModel):
+    enabled: bool
+    model: str
+    effort: str
+    reason: str | None = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=4000)
+    thread_id: int | None = None
+
+
+class ChatToolCall(BaseModel):
+    name: str
+    input: dict[str, Any]
+
+
+class ChatResponse(BaseModel):
+    thread_id: int
+    reply: str
+    tool_calls: list[ChatToolCall]
+    usage: dict[str, int]
+
+
+class ChatMessageOut(ORMModel):
+    id: int
+    role: str
+    content: str
+    created_at: datetime
+    tool_calls: list[ChatToolCall] = Field(default_factory=list)
+
+
+class ChatThreadOut(ORMModel):
+    id: int
+    title: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class CategoriseResponse(BaseModel):
+    merchants_reviewed: int
+    rules_created: int
+    transactions_recategorised: int
+    skipped_low_confidence: int
+    verdicts: list[dict[str, Any]]
+
+
+class BriefingResponse(BaseModel):
+    text: str
+    generated_for: date

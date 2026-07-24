@@ -229,6 +229,37 @@ class SyncLog(Base):
     message: Mapped[str | None] = mapped_column(Text)
 
 
+class ChatThread(Base):
+    """One conversation with the finance assistant."""
+
+    __tablename__ = "chat_threads"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160), default="New conversation")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    messages: Mapped[list["ChatMessage"]] = relationship(
+        back_populates="thread", cascade="all, delete-orphan", order_by="ChatMessage.id"
+    )
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    thread_id: Mapped[int] = mapped_column(
+        ForeignKey("chat_threads.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String(20))  # "user" | "assistant"
+    content: Mapped[str] = mapped_column(Text)
+    tool_calls: Mapped[str | None] = mapped_column(Text)  # JSON list, for transparency
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    thread: Mapped[ChatThread] = relationship(back_populates="messages")
+
+
 class OAuthState(Base):
     """Short-lived CSRF state for provider authorisation redirects."""
 

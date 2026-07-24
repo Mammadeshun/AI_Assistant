@@ -52,6 +52,16 @@ class Settings(BaseSettings):
     gocardless_secret_key: str = ""
     gocardless_redirect_uri: str = ""
 
+    # --- AI (Claude) ------------------------------------------------------
+    # Leave the key blank to keep every AI feature switched off. Nothing is sent
+    # anywhere until this is set.
+    anthropic_api_key: str = ""
+    ai_model: str = "claude-opus-5"
+    ai_effort: str = "medium"            # chat and written insights
+    ai_categorise_effort: str = "low"    # merchant classification is simple work
+    ai_server_side_fallback: bool = True
+    ai_chat_history_turns: int = 20
+
     # --- behaviour --------------------------------------------------------
     default_currency: str = "GBP"
     initial_sync_days: int = 730

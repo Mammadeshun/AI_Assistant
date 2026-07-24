@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Financial Manager</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💷</text></svg>" />
 </head>
 <body>
@@ -49,6 +55,7 @@
       <div class="brand">💷 <span>Finances</span></div>
       <nav id="nav">
         <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="assistant">Assistant</button>
         <button class="nav-item" data-view="transactions">Transactions</button>
         <button class="nav-item" data-view="budgets">Budgets</button>
         <button class="nav-item" data-view="recurring">Recurring</button>
@@ -56,6 +63,7 @@
         <button class="nav-item" data-view="rules">Rules</button>
       </nav>
       <div class="sidebar-foot">
+        <button class="btn btn-ghost btn-block hidden" id="install-btn">Install app</button>
         <button class="btn btn-ghost btn-block" id="sync-btn">Sync now</button>
         <div class="sync-status" id="sync-status"></div>
         <button class="btn btn-link" id="logout-btn">Sign out</button>
