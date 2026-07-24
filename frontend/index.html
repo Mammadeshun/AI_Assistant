@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Financial Manager</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💷</text></svg>" />
+</head>
+<body>
+  <!-- Auth gate ------------------------------------------------------- -->
+  <div id="auth-screen" class="auth-screen hidden">
+    <form id="auth-form" class="auth-card">
+      <h1 class="auth-title">Financial Manager</h1>
+      <p class="auth-sub" id="auth-sub">Sign in to your instance.</p>
+
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="username" required />
+      </label>
+
+      <label class="field">
+        <span>Password</span>
+        <input type="password" name="password" autocomplete="current-password" required minlength="10" />
+      </label>
+
+      <div id="register-only" class="hidden">
+        <label class="field">
+          <span>Display name</span>
+          <input type="text" name="display_name" autocomplete="name" />
+        </label>
+        <label class="field">
+          <span>Base currency</span>
+          <select name="base_currency">
+            <option>GBP</option><option>EUR</option><option>USD</option>
+            <option>PLN</option><option>RON</option><option>CHF</option><option>SEK</option>
+          </select>
+        </label>
+      </div>
+
+      <p class="auth-error hidden" id="auth-error"></p>
+      <button class="btn btn-primary btn-block" type="submit" id="auth-submit">Sign in</button>
+    </form>
+  </div>
+
+  <!-- App ------------------------------------------------------------- -->
+  <div id="app" class="app hidden">
+    <aside class="sidebar">
+      <div class="brand">💷 <span>Finances</span></div>
+      <nav id="nav">
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="transactions">Transactions</button>
+        <button class="nav-item" data-view="budgets">Budgets</button>
+        <button class="nav-item" data-view="recurring">Recurring</button>
+        <button class="nav-item" data-view="accounts">Accounts</button>
+        <button class="nav-item" data-view="rules">Rules</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="btn btn-ghost btn-block" id="sync-btn">Sync now</button>
+        <div class="sync-status" id="sync-status"></div>
+        <button class="btn btn-link" id="logout-btn">Sign out</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1 id="view-title">Dashboard</h1>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
+      <div id="view" class="view"></div>
+    </main>
+  </div>
+
+  <!-- Modal ----------------------------------------------------------- -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="modal-head">
+        <h2 id="modal-title"></h2>
+        <button class="btn btn-icon" id="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts"></div>
+
+  <script src="/static/app.js" type="module"></script>
+</body>
+</html>
