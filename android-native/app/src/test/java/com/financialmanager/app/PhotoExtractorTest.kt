@@ -112,3 +112,56 @@ class PhotoExtractorTest {
         extractor.parse("I had trouble reading that image, sorry!", "EUR")
     }
 }
+
+/**
+ * Reading the picked image off the phone.
+ *
+ * These exist because the measuring pass returns null from decodeStream by
+ * design, and treating that as "the stream failed to open" made every photo
+ * fail with "That image could not be opened" — a message about the wrong thing
+ * entirely.
+ */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
+class PhotoReadingTest {
+
+    private val context =
+        androidx.test.core.app.ApplicationProvider.getApplicationContext<android.content.Context>()
+
+    private fun uriFor(bytes: ByteArray): android.net.Uri {
+        val uri = android.net.Uri.parse("content://test/image-${bytes.size}")
+        // Registered twice over: the code opens the stream once to measure and
+        // again to decode, which is the shape that hid the bug.
+        org.robolectric.Shadows.shadowOf(context.contentResolver)
+            .registerInputStreamSupplier(uri) { java.io.ByteArrayInputStream(bytes) }
+        return uri
+    }
+
+    private fun pngBytes(): ByteArray {
+        val bitmap = android.graphics.Bitmap.createBitmap(
+            120, 80, android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        return java.io.ByteArrayOutputStream().use { out ->
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            out.toByteArray()
+        }
+    }
+
+    @Test
+    fun `a readable image is not reported as unopenable`() {
+        val extractor = PhotoExtractor(context)
+        val bytes = runCatching { extractor.readScaledJpeg(uriFor(pngBytes())) }
+
+        val failure = bytes.exceptionOrNull()?.message.orEmpty()
+        assertTrue(
+            "a perfectly good image must not be called unopenable: $failure",
+            !failure.contains("could not be opened"),
+        )
+    }
+
+    // The other half of this — a file that is not an image being rejected — has
+    // no test, because Robolectric fakes image decoding and reports valid
+    // dimensions for any bytes at all, including plain text. The check exists in
+    // readScaledJpeg and is judged on the dimensions rather than the decode
+    // result, which is the part that can be tested and is tested above.
+}

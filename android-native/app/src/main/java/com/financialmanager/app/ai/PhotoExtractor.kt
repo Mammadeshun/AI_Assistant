@@ -99,20 +99,25 @@ class PhotoExtractor(private val context: Context) {
      * is tens of megabytes over mobile data, for no gain — the text in a
      * screenshot is perfectly legible at 1600px.
      */
-    private fun readScaledJpeg(uri: Uri): ByteArray {
+    internal fun readScaledJpeg(uri: Uri): ByteArray {
+        // The measuring pass returns null from decodeStream on purpose — with
+        // inJustDecodeBounds it only fills in the dimensions. So whether the
+        // image opened has to be judged by the stream and the size it reported,
+        // never by the decode result.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, bounds)
-        } ?: throw Exception("That image could not be opened.")
+        openStream(uri).use { BitmapFactory.decodeStream(it, null, bounds) }
+
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw Exception("That file isn't an image this phone can read.")
+        }
 
         val longest = maxOf(bounds.outWidth, bounds.outHeight)
         var sample = 1
         while (longest / sample > MAX_EDGE * 2) sample *= 2
 
         val options = BitmapFactory.Options().apply { inSampleSize = sample }
-        val bitmap = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, options)
-        } ?: throw Exception("That image could not be read.")
+        val bitmap = openStream(uri).use { BitmapFactory.decodeStream(it, null, options) }
+            ?: throw Exception("That image could not be decoded.")
 
         return ByteArrayOutputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
@@ -120,6 +125,12 @@ class PhotoExtractor(private val context: Context) {
             out.toByteArray()
         }
     }
+
+    private fun openStream(uri: Uri) = context.contentResolver.openInputStream(uri)
+        ?: throw Exception(
+            "That image could not be opened. If it came from a cloud album, save it to " +
+                "the phone first and pick it from there."
+        )
 
     private fun anthropicRequest(apiKey: String, image: String, currency: String): Request {
         val body = buildJsonObject {
