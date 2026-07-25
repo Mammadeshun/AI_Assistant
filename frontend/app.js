@@ -585,6 +585,7 @@ const views = {
         <div class="card">
           <div class="card-head"><h2>Connections</h2>
             <button class="btn btn-sm btn-primary" id="connect-btn">Connect a bank</button></div>
+          <p class="small muted" id="sync-note" style="margin-top:-.5rem"></p>
           <div class="stack">${
             connections.length ? connections.map((connection) => `
               <div class="row-between">
@@ -644,6 +645,13 @@ const views = {
           </div>`).join("")}
         </div>
       </div>`;
+
+    const anyConnection = connections.some((c) => c.status === "active");
+    if (anyConnection) {
+      root.querySelector("#sync-note").textContent =
+        "Connected accounts refresh on their own about twice a day. " +
+        "Sync now if you want it immediately.";
+    }
 
     root.querySelector("#connect-btn").addEventListener("click", () => connectDialog(providers));
     root.querySelector("#add-account-btn").addEventListener("click", manualAccountDialog);

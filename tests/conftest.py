@@ -19,6 +19,8 @@ os.environ.update(
         "DATA_DIR": str(_TMP),
         "ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "SESSION_SECRET": "test-session-secret",
+        # No background network work during tests.
+        "AUTO_SYNC_ENABLED": "false",
         "PUBLIC_BASE_URL": "http://testserver",
         "REVOLUT_ENVIRONMENT": "sandbox",
         "REVOLUT_CLIENT_ID": "test-client",

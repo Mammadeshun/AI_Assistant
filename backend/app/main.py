@@ -18,6 +18,7 @@ from .config import get_settings
 from .db import init_db
 from .providers.base import ConsentExpired, ProviderError
 from .routers import accounts, ai, analytics, auth, budgeting, connections, transactions
+from .services import scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -80,7 +81,12 @@ async def lifespan(_: FastAPI):
     else:
         log.info("On this computer: http://localhost:%s", port)
         log.info("Could not detect a network address — is this machine offline?")
-    yield
+
+    auto_sync = scheduler.start(settings)
+    try:
+        yield
+    finally:
+        await scheduler.stop_task(auto_sync)
 
 
 app = FastAPI(

@@ -124,6 +124,10 @@ free tier that covers Revolut in the UK and across the EEA.
 5. Restart the app, then **Accounts → Connect a bank → Connect Revolut**. You'll
    be sent to Revolut to approve read-only access.
 
+Once connected, it keeps itself current: the app re-syncs each connection about
+twice a day on its own, and **Sync now** is there if you want it immediately.
+Nothing to schedule, no cron entry — it runs inside the app.
+
 Two things to know about this route:
 
 - **Consent expires after 90 days.** That's the regulatory maximum, not a choice
@@ -283,8 +287,9 @@ API docs, while the app is running: <http://localhost:8000/docs>.
 
 ## Limitations
 
-- **Sync is manual.** Press *Sync now*, or `POST /api/connections/sync-all` from
-  cron. There's no background scheduler.
+- **Syncing is twice a day, not live.** Banks don't push updates here, so the
+  app polls. `AUTO_SYNC_INTERVAL_HOURS` changes the pace, but the aggregator's
+  ~4 reads per account per day is the real ceiling. *Sync now* is always there.
 - **No FX conversion**, by design (see above).
 - **Read-only.** No payments, transfers or standing-order changes.
 - **Single user per instance.**

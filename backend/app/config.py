@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     ai_server_side_fallback: bool = True
     ai_chat_history_turns: int = 20
 
+    # --- automatic syncing -------------------------------------------------
+    # Keeps connected accounts current without anyone pressing Sync. 12 hours
+    # stays comfortably inside GoCardless's ~4 reads per account per day.
+    auto_sync_enabled: bool = True
+    auto_sync_interval_hours: int = 12
+    # How often the loop looks for work (not how often it syncs).
+    auto_sync_check_seconds: int = 900
+    auto_sync_start_delay_seconds: int = 120
+
     # --- behaviour --------------------------------------------------------
     default_currency: str = "GBP"
     initial_sync_days: int = 730
