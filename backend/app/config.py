@@ -7,7 +7,11 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from .paths import app_data_dir
+
+# Where the user's own files live. Running from source this is the repository;
+# in a packaged build it is the folder holding the executable.
+REPO_ROOT = app_data_dir()
 
 # Override to point at another env file, or at a path that does not exist to
 # ignore .env entirely (the test suite does the latter, so a developer's real

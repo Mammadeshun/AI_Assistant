@@ -16,13 +16,14 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import get_settings
 from .db import init_db
+from .paths import bundle_dir
 from .providers.base import ConsentExpired, ProviderError
 from .routers import accounts, ai, analytics, auth, budgeting, connections, transactions
 from .services import scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
-FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+FRONTEND_DIR = bundle_dir() / "frontend"
 
 
 def lan_address() -> str | None:
