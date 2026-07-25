@@ -30,7 +30,13 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
-data class ChatMessage(val role: String, val text: String, val isError: Boolean = false)
+data class ChatMessage(
+    val role: String,
+    val text: String,
+    val isError: Boolean = false,
+    /** True when this turn changed the user's data, not just talked about it. */
+    val changed: Boolean = false,
+)
 
 /**
  * Stores the Anthropic API key in Android's encrypted preferences, which are
@@ -127,6 +133,7 @@ enum class Provider(val label: String, val keyHint: String, val console: String)
 class Assistant(
     private val dao: TransactionDao,
     private val commitmentDao: CommitmentDao,
+    private val actions: Actions,
 ) {
 
     private val http = OkHttpClient.Builder()
@@ -145,36 +152,119 @@ class Assistant(
         val system = SYSTEM_PROMPT + "\n\n" + buildFacts(currency)
         val turns = history.filterNot { it.isError }
 
-        val request = when (provider) {
-            Provider.ANTHROPIC -> anthropicRequest(apiKey, system, turns)
-            Provider.GEMINI -> geminiRequest(apiKey, system, turns)
-        }
+        // Anything the assistant did, collected so the reply can say so plainly
+        // even if the model forgets to mention it.
+        val done = mutableListOf<String>()
+        var outcomes = emptyList<ToolOutcome>()
 
-        http.newCall(request).execute().use { response ->
-            val payload = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw Exception(friendlyError(provider, response.code, payload))
+        repeat(MAX_ROUNDS) {
+            val request = when (provider) {
+                Provider.ANTHROPIC -> anthropicRequest(apiKey, system, turns, outcomes)
+                Provider.GEMINI -> geminiRequest(apiKey, system, turns, outcomes)
             }
 
-            val parsed = json.parseToJsonElement(payload).jsonObject
-            val text = when (provider) {
-                Provider.ANTHROPIC -> readAnthropic(parsed)
-                Provider.GEMINI -> readGemini(parsed)
+            val parsed = http.newCall(request).execute().use { response ->
+                val payload = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    throw Exception(friendlyError(provider, response.code, payload))
+                }
+                json.parseToJsonElement(payload).jsonObject
             }
-            ChatMessage("assistant", text.ifBlank { "No answer came back." })
+
+            val calls = when (provider) {
+                Provider.ANTHROPIC -> anthropicCalls(parsed)
+                Provider.GEMINI -> geminiCalls(parsed)
+            }
+
+            if (calls.isEmpty()) {
+                val text = when (provider) {
+                    Provider.ANTHROPIC -> readAnthropic(parsed)
+                    Provider.GEMINI -> readGemini(parsed)
+                }
+                return@withContext ChatMessage(
+                    "assistant",
+                    buildString {
+                        append(text.ifBlank { if (done.isEmpty()) "No answer came back." else "" })
+                        if (done.isNotEmpty()) {
+                            if (isNotEmpty()) append("\n\n")
+                            append(done.joinToString("\n") { "• $it" })
+                        }
+                    }.trim(),
+                    changed = done.isNotEmpty(),
+                )
+            }
+
+            // Carried out without stopping to ask, which is the point of being
+            // able to talk to it. Each one is undoable afterwards.
+            outcomes = calls.map { call ->
+                val result = actions.execute(call)
+                if (call.name != "list_commitments") done += result
+                ToolOutcome(call, result)
+            }
         }
+
+        ChatMessage(
+            "assistant",
+            (done.takeIf { it.isNotEmpty() }?.joinToString("\n") { "• $it" }
+                ?: "That took more steps than expected — nothing further was changed."),
+            changed = done.isNotEmpty(),
+        )
     }
 
-    private fun anthropicRequest(apiKey: String, system: String, turns: List<ChatMessage>): Request {
+    private fun anthropicRequest(
+        apiKey: String,
+        system: String,
+        turns: List<ChatMessage>,
+        outcomes: List<ToolOutcome>,
+    ): Request {
         val body = buildJsonObject {
             put("model", ANTHROPIC_MODEL)
             put("max_tokens", 1024)
             put("system", system)
+            put("tools", buildJsonArray {
+                Actions.DECLARATIONS.forEach { declaration ->
+                    val tool = declaration.jsonObject
+                    add(buildJsonObject {
+                        put("name", tool["name"]!!)
+                        put("description", tool["description"]!!)
+                        put("input_schema", tool["parameters"]!!)
+                    })
+                }
+            })
             put("messages", buildJsonArray {
                 turns.forEach { message ->
                     add(buildJsonObject {
                         put("role", if (message.role == "user") "user" else "assistant")
                         put("content", message.text)
+                    })
+                }
+                if (outcomes.isNotEmpty()) {
+                    // The assistant's tool requests, then their results, in the
+                    // shape the API expects them back.
+                    add(buildJsonObject {
+                        put("role", "assistant")
+                        put("content", buildJsonArray {
+                            outcomes.forEach { outcome ->
+                                add(buildJsonObject {
+                                    put("type", "tool_use")
+                                    put("id", outcome.call.id ?: outcome.call.name)
+                                    put("name", outcome.call.name)
+                                    put("input", outcome.call.arguments)
+                                })
+                            }
+                        })
+                    })
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("content", buildJsonArray {
+                            outcomes.forEach { outcome ->
+                                add(buildJsonObject {
+                                    put("type", "tool_result")
+                                    put("tool_use_id", outcome.call.id ?: outcome.call.name)
+                                    put("content", outcome.result)
+                                })
+                            }
+                        })
                     })
                 }
             })
@@ -189,8 +279,16 @@ class Assistant(
             .build()
     }
 
-    private fun geminiRequest(apiKey: String, system: String, turns: List<ChatMessage>): Request {
+    private fun geminiRequest(
+        apiKey: String,
+        system: String,
+        turns: List<ChatMessage>,
+        outcomes: List<ToolOutcome>,
+    ): Request {
         val body = buildJsonObject {
+            put("tools", buildJsonArray {
+                add(buildJsonObject { put("function_declarations", Actions.DECLARATIONS) })
+            })
             putJsonObject("system_instruction") {
                 put("parts", buildJsonArray { add(buildJsonObject { put("text", system) }) })
             }
@@ -201,6 +299,36 @@ class Assistant(
                         put("role", if (message.role == "user") "user" else "model")
                         put("parts", buildJsonArray {
                             add(buildJsonObject { put("text", message.text) })
+                        })
+                    })
+                }
+                if (outcomes.isNotEmpty()) {
+                    add(buildJsonObject {
+                        put("role", "model")
+                        put("parts", buildJsonArray {
+                            outcomes.forEach { outcome ->
+                                add(buildJsonObject {
+                                    putJsonObject("functionCall") {
+                                        put("name", outcome.call.name)
+                                        put("args", outcome.call.arguments)
+                                    }
+                                })
+                            }
+                        })
+                    })
+                    add(buildJsonObject {
+                        put("role", "user")
+                        put("parts", buildJsonArray {
+                            outcomes.forEach { outcome ->
+                                add(buildJsonObject {
+                                    putJsonObject("functionResponse") {
+                                        put("name", outcome.call.name)
+                                        putJsonObject("response") {
+                                            put("result", outcome.result)
+                                        }
+                                    }
+                                })
+                            }
                         })
                     })
                 }
@@ -216,6 +344,33 @@ class Assistant(
             .post(body.toString().toRequestBody(JSON_MEDIA))
             .build()
     }
+
+    /** The tool requests in a reply, if it made any. */
+    private fun anthropicCalls(parsed: JsonObject): List<ToolCall> =
+        parsed["content"]?.jsonArray.orEmpty()
+            .map { it.jsonObject }
+            .filter { it["type"]?.jsonPrimitive?.content == "tool_use" }
+            .mapNotNull { block ->
+                val name = block["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                ToolCall(
+                    id = block["id"]?.jsonPrimitive?.content,
+                    name = name,
+                    arguments = block["input"] as? JsonObject ?: JsonObject(emptyMap()),
+                )
+            }
+
+    private fun geminiCalls(parsed: JsonObject): List<ToolCall> =
+        parsed["candidates"]?.jsonArray?.firstOrNull()
+            ?.jsonObject?.get("content")?.jsonObject?.get("parts")?.jsonArray.orEmpty()
+            .mapNotNull { part ->
+                val call = part.jsonObject["functionCall"]?.jsonObject ?: return@mapNotNull null
+                val name = call["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                ToolCall(
+                    id = null,
+                    name = name,
+                    arguments = call["args"] as? JsonObject ?: JsonObject(emptyMap()),
+                )
+            }
 
     private fun readAnthropic(parsed: JsonObject): String {
         // A refusal has to be checked before the content is read: the stop
@@ -358,6 +513,13 @@ class Assistant(
         const val ANTHROPIC_MODEL = "claude-haiku-4-5"
         const val GEMINI_MODEL = "gemini-2.5-flash"
 
+        /**
+         * How many times the model may call tools before the turn ends. Enough
+         * for "add these four instalments", short enough that a loop cannot run
+         * up a bill or churn the database.
+         */
+        const val MAX_ROUNDS = 6
+
         val SYSTEM_PROMPT = """
             You help someone understand their own spending. You are given their
             real figures below.
@@ -370,6 +532,23 @@ class Assistant(
             safe to spend rather than the balance, and say what you subtracted.
             When they ask about debts or paying something off, use the payments
             and the amounts still owed, and be straight about how long it takes.
+
+            You can also change their records: add or edit debts, instalments,
+            subscriptions and bills, set cash on hand, set budgets, add a
+            transaction, and refile a merchant into a category.
+
+            When they ask for a change, make it. Do not ask permission and do
+            not offer to do it — they have said they want it done. Every change
+            is recorded and can be undone with one tap, so acting is cheap and
+            asking is the annoying part.
+
+            Two things to be careful about. Change only what they asked for,
+            nothing tidier alongside it. And if what they want is ambiguous in a
+            way that changes the number — which of two similar commitments, or
+            an amount you would be guessing — ask that one question rather than
+            picking for them.
+
+            Say what you did in plain terms afterwards.
 
             Be brief and concrete. Use the amounts you were given, keep the
             currency they are in, and skip the preamble. No pep talks.

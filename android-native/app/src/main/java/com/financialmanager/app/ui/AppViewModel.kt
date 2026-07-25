@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.financialmanager.app.ai.Assistant
 import com.financialmanager.app.ai.ChatMessage
+import com.financialmanager.app.ai.Actions
 import com.financialmanager.app.ai.Extraction
 import com.financialmanager.app.ai.PhotoExtractor
 import com.financialmanager.app.ai.ProposedCommitment
@@ -14,6 +15,7 @@ import com.financialmanager.app.ai.Secrets
 import com.financialmanager.app.categorise.Categoriser
 import com.financialmanager.app.data.Budget
 import com.financialmanager.app.data.CashHolding
+import com.financialmanager.app.data.ChangeRecord
 import com.financialmanager.app.data.CategoryTotal
 import com.financialmanager.app.data.Commitment
 import com.financialmanager.app.data.CommitmentKind
@@ -84,7 +86,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val cashDao = db.cash()
     private val photos = PhotoExtractor(application)
     private val secrets = Secrets(application)
-    private val assistant = Assistant(dao, commitmentDao)
+    private val changeDao = db.changes()
+    private val actions = Actions(db, changeDao) { _currency.value }
+    private val assistant = Assistant(dao, commitmentDao, actions)
 
     val transactionCount: StateFlow<Int> =
         dao.count().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
@@ -386,6 +390,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /* --- what the assistant changed ---------------------------------- */
+
+    /**
+     * Shown on the dashboard, not only in the chat: an edit made by talking
+     * should be as visible as one made by tapping.
+     */
+    val recentChanges: StateFlow<List<ChangeRecord>> = changeDao.recent(8)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun undoChange(record: ChangeRecord) {
+        viewModelScope.launch {
+            actions.undo(record)
+            SafeToSpendWidget.refresh(getApplication())
+        }
+    }
+
     /* --- reading a photo --------------------------------------------- */
 
     private val _extraction = MutableStateFlow<ExtractionState>(ExtractionState.Idle)
@@ -480,6 +500,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             _chat.value = _chat.value + reply
             _chatBusy.value = false
+            if (reply.changed) SafeToSpendWidget.refresh(getApplication())
         }
     }
 

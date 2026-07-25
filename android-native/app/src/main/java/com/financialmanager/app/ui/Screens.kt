@@ -86,6 +86,7 @@ fun DashboardScreen(
     val commitments by model.commitments.collectAsStateWithLifecycle()
     val observations by model.observations.collectAsStateWithLifecycle()
     val importError by model.lastImportError.collectAsStateWithLifecycle()
+    val recentChanges by model.recentChanges.collectAsStateWithLifecycle()
     var addingManually by remember { mutableStateOf(false) }
 
     if (count == 0) {
@@ -122,6 +123,29 @@ fun DashboardScreen(
 
         if (commitments.isEmpty()) {
             item { RecordDebtsPrompt(onOpenPlan) }
+        }
+
+        // What the assistant changed, on the main screen rather than buried in
+        // the chat: an edit made by talking should be as visible as one made by
+        // tapping, and as easy to put back.
+        if (recentChanges.isNotEmpty()) {
+            item {
+                SectionCard("Recent changes") {
+                    recentChanges.forEach { change ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                change.summary,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { model.undoChange(change) }) { Text("Undo") }
+                        }
+                    }
+                }
+            }
         }
 
         if (observations.isNotEmpty()) {
