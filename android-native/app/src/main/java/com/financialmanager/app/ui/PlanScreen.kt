@@ -333,45 +333,22 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
 
 @Composable
 private fun SafeToSpendCard(plan: com.financialmanager.app.plan.MonthPlan) {
-    val short = plan.isOverstretched
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(
-                if (short) MaterialTheme.colorScheme.errorContainer
-                else MaterialTheme.colorScheme.primaryContainer
-            )
-            .padding(20.dp),
-    ) {
-        Text(
-            if (short) "SHORT BY" else "SAFE TO SPEND",
-            style = MaterialTheme.typography.labelMedium,
-            color = if (short) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            Money.format(kotlin.math.abs(plan.safeToSpendMinor), plan.currency),
-            style = MoneyLarge,
-            color = if (short) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (short) {
-                "Once this month's remaining payments leave, you're short. " +
-                    "${plan.daysLeft} days to go."
-            } else {
-                "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for the " +
-                    "${plan.daysLeft} days left, after the " +
-                    "${Money.format(plan.stillToLeaveMinor, plan.currency)} still due to leave."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = if (short) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onPrimaryContainer,
-        )
-    }
+    val today = java.time.LocalDate.now()
+    HeroCard(
+        label = if (plan.isOverstretched) "Short by" else "Safe to spend",
+        amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
+        currency = plan.currency,
+        caption = if (plan.isOverstretched) {
+            "Once this month's remaining payments leave, you're short. " +
+                "${plan.daysLeft} days to go."
+        } else {
+            "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for the " +
+                "${plan.daysLeft} days left, after the " +
+                "${Money.format(plan.stillToLeaveMinor, plan.currency)} still due to leave."
+        },
+        monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth(),
+        short = plan.isOverstretched,
+    )
 }
 
 @Composable
@@ -509,15 +486,7 @@ private fun BudgetRow(budget: BudgetProgress, onClick: () -> Unit) {
             )
         }
         Spacer(Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = { budget.fraction.coerceIn(0f, 1f) },
-            color = colour,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(4.dp)),
-        )
+        ProgressBar(fraction = budget.fraction, colour = colour)
         if (budget.isOver || budget.isAheadOfPace()) {
             Spacer(Modifier.height(4.dp))
             Text(

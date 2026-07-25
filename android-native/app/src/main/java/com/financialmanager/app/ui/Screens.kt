@@ -158,34 +158,22 @@ fun DashboardScreen(
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
-                    label = "Balance",
-                    value = Money.format(dashboard.balanceMinor, dashboard.currency),
-                    note = "$count transactions",
-                    modifier = Modifier.weight(1f),
-                )
-                StatCard(
-                    label = "Net",
-                    value = Money.format(dashboard.netMinor, dashboard.currency, signed = true),
-                    note = "this month",
-                    valueColour = amountColour(dashboard.netMinor),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard(
+                StatTile(
                     label = "In",
-                    value = Money.format(dashboard.incomeMinor, dashboard.currency),
-                    valueColour = positiveColour(),
+                    amountMinor = dashboard.incomeMinor,
+                    currency = dashboard.currency,
+                    colour = positiveColour(),
+                    note = "$count payments",
                     modifier = Modifier.weight(1f),
                 )
-                StatCard(
+                StatTile(
                     label = "Out",
-                    value = Money.format(dashboard.spendMinor, dashboard.currency),
-                    valueColour = negativeColour(),
+                    amountMinor = dashboard.spendMinor,
+                    currency = dashboard.currency,
+                    colour = negativeColour(),
+                    note = "net " + Money.format(
+                        dashboard.netMinor, dashboard.currency, signed = true,
+                    ),
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -425,24 +413,12 @@ private fun TransactionRowItem(txn: TransactionRow, onClick: () -> Unit) {
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(38.dp),
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(CATEGORY_ICONS[txn.category] ?: "•")
-                }
-            }
-        }
+        CategoryBadge(
+            icon = CATEGORY_ICONS[txn.category] ?: "•",
+            tint = CATEGORY_COLOURS[txn.category] ?: MaterialTheme.colorScheme.primary,
+        )
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(13.dp))
 
         Column(Modifier.weight(1f)) {
             Text(
@@ -459,7 +435,7 @@ private fun TransactionRowItem(txn: TransactionRow, onClick: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(10.dp))
 
         Text(
             Money.format(txn.amountMinor, txn.currency, signed = true),
@@ -824,47 +800,26 @@ private fun SafeToSpendHeadline(
     plan: com.financialmanager.app.plan.MonthPlan,
     onOpenPlan: () -> Unit,
 ) {
-    val short = plan.isOverstretched
-    val container = if (short) MaterialTheme.colorScheme.errorContainer
-    else MaterialTheme.colorScheme.primaryContainer
-    val onContainer = if (short) MaterialTheme.colorScheme.onErrorContainer
-    else MaterialTheme.colorScheme.onPrimaryContainer
-
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .background(container)
-            .clickable(onClick = onOpenPlan)
-            .padding(20.dp),
-    ) {
-        Text(
-            if (short) "SHORT BY" else "SAFE TO SPEND",
-            style = MaterialTheme.typography.labelMedium,
-            color = onContainer,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            Money.format(kotlin.math.abs(plan.safeToSpendMinor), plan.currency),
-            style = MoneyLarge,
-            color = onContainer,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (plan.committedMinor == 0L) {
+    val today = LocalDate.now()
+    HeroCard(
+        label = if (plan.isOverstretched) "Short by" else "Safe to spend",
+        amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
+        currency = plan.currency,
+        caption = when {
+            plan.committedMinor == 0L ->
                 "Nothing committed yet — tap to add debts and regular payments."
-            } else if (short) {
+            plan.isOverstretched ->
                 "${Money.format(plan.stillToLeaveMinor, plan.currency)} still has to leave " +
                     "this month, and there isn't enough for it."
-            } else {
+            else ->
                 "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for " +
-                    "${plan.daysLeft} days, after the " +
+                    "${plan.daysLeft} days, after " +
                     "${Money.format(plan.stillToLeaveMinor, plan.currency)} still to leave."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = onContainer,
-        )
-    }
+        },
+        monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth(),
+        short = plan.isOverstretched,
+        modifier = Modifier.clickable(onClick = onOpenPlan),
+    )
 }
 
 /** Asks the question a statement can never answer for you. */

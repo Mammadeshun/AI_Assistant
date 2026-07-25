@@ -72,6 +72,22 @@ Needs a JDK 17+ and an Android SDK with platform 35. The release APK is signed
 with Android's standard debug key — enough to install on your own device, not
 enough to publish anywhere.
 
+### The design is screenshot-tested
+
+The screens are rendered to PNG on the JVM by Paparazzi and compared against
+`app/src/test/snapshots/`. There is no emulator on the machine this is built on,
+and a layout that overflows or a colour that vanishes against its own background
+is not something an ordinary test notices — the first run of these caught a
+heading rendering black on a dark background.
+
+```bash
+gradle :app:recordPaparazziDebug   # after an intentional design change
+gradle :app:verifyPaparazziDebug   # what the test suite runs
+```
+
+Changing the look on purpose means re-recording; a change that alters a screen
+without meaning to fails the build.
+
 ### Checking the parser against a real statement
 
 The parser is covered by unit tests using synthetic rows, plus one test that
