@@ -162,4 +162,48 @@ class PdfStatementTest {
     fun `merchant names that are not mojibake are untouched`() {
         assertEquals("Caf\u00e8 Roma", PdfStatement.repairEncoding("Caf\u00e8 Roma"))
     }
+
+    @Test
+    fun `a lost decimal point does not become the next column`() {
+        // PDFBox drops the decimal point in some rows, rendering EUR 13.93 as
+        // "13 93". Matching the next money column instead would read the running
+        // balance as the amount, turning a payment into income — which is what
+        // happened to a real row before this was fixed.
+        val transactions = PdfStatement.parseLines(
+            sequenceOf("16-Jul-26 PayPal EuropeOthers -\u20ac13 93 \u20ac551.99 \u20ac0.00")
+        )
+        assertEquals(1, transactions.size)
+        assertEquals(-1393L, transactions[0].amountMinor)
+    }
+
+    @Test
+    fun `space separated thousands are not mistaken for a lost decimal point`() {
+        val transactions = PdfStatement.parseLines(
+            sequenceOf("01-Dec-23 Rent PaymentTransfer -\u20ac1 234.56 \u20ac10.00")
+        )
+        assertEquals(-123_456L, transactions[0].amountMinor)
+    }
+
+    @Test
+    fun `a type word with a dropped character is still stripped`() {
+        // Overlapping glyphs cost the odd character during extraction.
+        val cases = mapOf(
+            "Tarantola AlbertoM chant" to "Tarantola Alberto",
+            "Quadriphone PaviaMerch nt" to "Quadriphone Pavia",
+            "Transfer from Masoud BidabadiOther" to "Transfer from Masoud Bidabadi",
+        )
+        for ((raw, expected) in cases) {
+            val parsed = PdfStatement.parseLines(sequenceOf("01-Dec-23 $raw -\u20ac5.00 \u20ac1.00"))
+            assertEquals(raw, expected, parsed[0].description)
+        }
+    }
+
+    @Test
+    fun `a merchant name is not mistaken for a mangled type word`() {
+        // The fuzzy pass must not start eating real names off the end.
+        for (merchant in listOf("Da Giulio", "Bar Centrale", "Interest Free Shop", "Cardiff Bakery")) {
+            val parsed = PdfStatement.parseLines(sequenceOf("01-Dec-23 ${merchant}Merchant -\u20ac5.00 \u20ac1.00"))
+            assertEquals(merchant, parsed[0].description)
+        }
+    }
 }

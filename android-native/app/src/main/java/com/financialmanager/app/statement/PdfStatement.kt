@@ -41,7 +41,18 @@ object PdfStatement {
 
     // Amounts print as -€56.00 or €2,630.29, and frequently run into the next
     // column with no space: €2,630.29€0.00
-    private val MONEY = Regex("""(-?)([€$£])\s?([\d,]+\.\d{2})""")
+    //
+    // The integer part is captured separately from the two decimals, because
+    // both separators are unreliable. Thousands may be grouped with a comma or
+    // a space, and the decimal point itself sometimes goes missing during text
+    // extraction, leaving "€13 93" where €13.93 belongs.
+    //
+    // Getting this wrong is expensive rather than merely untidy: if the amount
+    // fails to match, the next money column on the row does — the running
+    // balance — and a €13.93 payment silently books as €551.99 of income. So
+    // the pattern takes the last two digits as the decimals and everything
+    // before as the integer, and (?!\d) stops it stopping early.
+    private val MONEY = Regex("""(-?)([€$£])\s?([\d,\s]*\d)[.\s](\d{2})(?!\d)""")
 
     private val SYMBOL_CURRENCY = mapOf("€" to "EUR", "£" to "GBP", "$" to "USD")
 
@@ -135,15 +146,65 @@ object PdfStatement {
             null
         }
 
+    // Text extraction occasionally leaves a combining accent stranded on the
+    // wrong letter, turning "Merchant" into "M\u0308erchant" and hiding the type
+    // word. Every accented name in these statements uses a precomposed
+    // character, so a loose combining mark is damage rather than content.
+    private val COMBINING_MARKS = Regex("[\u0300-\u036f]")
+
     private fun cleanDescription(text: String): String {
-        var description = text.trim()
+        val description = stripRowType(COMBINING_MARKS.replace(text, "").trim())
+        return description.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+    }
+
+    /**
+     * Takes the transaction type off the end of the description.
+     *
+     * An exact match handles almost every row. The rest are there because text
+     * extraction drops the odd character when glyphs overlap, leaving "M chant"
+     * or "Other" where "Merchant" and "Others" belong — so a second pass allows
+     * one edit. Only types of five characters or more are matched that loosely:
+     * allowing an edit in "Fee" or "ATM" would start eating real merchant names.
+     */
+    private fun stripRowType(description: String): String {
         for (rowType in ROW_TYPES) {
-            if (description.endsWith(rowType)) {
-                description = description.dropLast(rowType.length).trim()
-                break
+            if (description.length > rowType.length && description.endsWith(rowType)) {
+                return description.dropLast(rowType.length).trim()
             }
         }
-        return description.split(Regex("\\s+")).filter { it.isNotEmpty() }.joinToString(" ")
+
+        for (rowType in ROW_TYPES) {
+            if (rowType.length < 5) continue
+            // Longer words survive a looser match; "Merchant" turns up as
+            // "M chant", which is two edits away.
+            val budget = if (rowType.length >= 8) 2 else 1
+            for (length in (rowType.length - 1)..rowType.length) {
+                if (description.length <= length) continue
+                val tail = description.takeLast(length)
+                // The first letter is the cheap guard that keeps this from
+                // chewing the end off a real merchant name.
+                if (tail.firstOrNull() != rowType.first()) continue
+                if (editDistance(tail, rowType) <= budget) {
+                    return description.dropLast(length).trim()
+                }
+            }
+        }
+        return description
+    }
+
+    /** Levenshtein distance, capped by the caller at 1 — so it stays cheap. */
+    private fun editDistance(a: String, b: String): Int {
+        var previous = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            val current = IntArray(b.length + 1)
+            current[0] = i
+            for (j in 1..b.length) {
+                val substitution = previous[j - 1] + if (a[i - 1] == b[j - 1]) 0 else 1
+                current[j] = minOf(previous[j] + 1, current[j - 1] + 1, substitution)
+            }
+            previous = current
+        }
+        return previous[b.length]
     }
 
     /**
@@ -172,7 +233,8 @@ object PdfStatement {
             if (!dateUnreadable) lastDate = bookedAt
 
             val currency = SYMBOL_CURRENCY[amount.groupValues[2]] ?: defaultCurrency
-            val value = amount.groupValues[3].replace(",", "")
+            val whole = amount.groupValues[3].replace(",", "").replace(" ", "")
+            val value = "$whole.${amount.groupValues[4]}"
             val signed = if (amount.groupValues[1] == "-") "-$value" else value
 
             val description = cleanDescription(rest.substring(0, amount.range.first))

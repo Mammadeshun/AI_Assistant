@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.financialmanager.app.ai.Assistant
 import com.financialmanager.app.ai.ChatMessage
+import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.ai.Secrets
 import com.financialmanager.app.data.CategoryTotal
 import com.financialmanager.app.data.FinanceDatabase
@@ -84,6 +85,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val _apiKeySet = MutableStateFlow(secrets.hasApiKey())
     val apiKeySet: StateFlow<Boolean> = _apiKeySet.asStateFlow()
 
+    private val _provider = MutableStateFlow(secrets.provider())
+    val provider: StateFlow<Provider> = _provider.asStateFlow()
+
     /** False when this phone's keystore wouldn't open, so a key lasts one run. */
     val keyStorageIsPersistent: Boolean get() = secrets.persistent
 
@@ -159,14 +163,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearImportState() { _importState.value = ImportState.Idle }
 
-    fun saveApiKey(key: String) {
-        secrets.setApiKey(key.trim())
+    fun saveApiKey(key: String, provider: Provider) {
+        val trimmed = key.trim()
+        // The key's own prefix is better evidence than the chosen radio button,
+        // which is easy to leave on the wrong one.
+        val actual = Provider.guessFrom(trimmed) ?: provider
+        secrets.setApiKey(trimmed, actual)
+        _provider.value = actual
         _apiKeySet.value = secrets.hasApiKey()
     }
 
     fun forgetApiKey() {
         secrets.clearApiKey()
         _apiKeySet.value = false
+        _provider.value = secrets.provider()
         _chat.value = emptyList()
     }
 
@@ -176,7 +186,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             _chat.value = _chat.value + ChatMessage(role = "user", text = question)
             _chatBusy.value = true
             val reply = try {
-                assistant.ask(key, _chat.value, _currency.value)
+                assistant.ask(key, secrets.provider(), _chat.value, _currency.value)
             } catch (error: Exception) {
                 ChatMessage(
                     role = "assistant",

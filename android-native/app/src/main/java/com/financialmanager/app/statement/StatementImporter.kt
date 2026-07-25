@@ -78,7 +78,11 @@ class StatementImporter(private val context: Context) {
                         "That PDF is password-protected. Remove the password and try again."
                     )
                 }
-                PDFTextStripper().apply { sortByPosition = true }.getText(document)
+                // Sorting by position interleaves the columns of this statement
+                // character by character once a description is long enough to
+                // overlap the next column, turning a row into unreadable soup.
+                // The order the text was written in is the reading order here.
+                PDFTextStripper().getText(document)
             }
         } catch (error: StatementError) {
             throw error

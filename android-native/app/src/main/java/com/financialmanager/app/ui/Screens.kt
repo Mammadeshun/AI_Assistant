@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -52,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.financialmanager.app.ai.ChatMessage
+import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.categorise.Categoriser
 import com.financialmanager.app.data.TransactionRow
 import com.financialmanager.app.money.Money
@@ -438,9 +440,9 @@ fun AssistantScreen(model: AppViewModel, padding: PaddingValues, onOpenSettings:
             Text("The assistant is off", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Add an Anthropic API key in Settings and you can ask questions about " +
-                    "your own spending. Until you do, nothing about your money leaves " +
-                    "this phone — and everything else works without it.",
+                "Add a Claude or Gemini API key in Settings and you can ask questions " +
+                    "about your own spending. Until you do, nothing about your money " +
+                    "leaves this phone — and everything else works without it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -553,8 +555,10 @@ private fun ChatBubble(message: ChatMessage) {
 @Composable
 fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> Unit) {
     val hasKey by model.apiKeySet.collectAsStateWithLifecycle()
+    val provider by model.provider.collectAsStateWithLifecycle()
     val count by model.transactionCount.collectAsStateWithLifecycle()
     var keyDraft by remember { mutableStateOf("") }
+    var chosenProvider by remember { mutableStateOf(provider) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -582,12 +586,12 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
             SectionCard("Assistant") {
                 Text(
                     if (hasKey) {
-                        "A key is saved. It is kept in this phone's encrypted storage and " +
-                            "sent only to Anthropic, only when you ask a question."
+                        "A ${provider.label} key is saved. It is kept in this phone's " +
+                            "encrypted storage and sent only to ${provider.label}, only " +
+                            "when you ask a question."
                     } else {
-                        "Paste an Anthropic API key to switch the assistant on. Get one at " +
-                            "console.anthropic.com. It is stored encrypted on this phone and " +
-                            "never sent anywhere except Anthropic."
+                        "Paste a key to switch the assistant on. It is stored encrypted on " +
+                            "this phone and sent nowhere else."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -606,20 +610,39 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
                 if (hasKey) {
                     OutlinedButton(onClick = model::forgetApiKey) { Text("Remove key") }
                 } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Provider.entries.forEach { option ->
+                            FilterChip(
+                                selected = chosenProvider == option,
+                                onClick = { chosenProvider = option },
+                                label = { Text(option.label) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = keyDraft,
                         onValueChange = { keyDraft = it },
-                        placeholder = { Text("sk-ant-…") },
+                        placeholder = { Text(chosenProvider.keyHint) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "Get a key at ${chosenProvider.console}" +
+                            if (chosenProvider == Provider.GEMINI) {
+                                " — Gemini's free tier covers a few questions a day."
+                            } else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = {
-                            model.saveApiKey(keyDraft)
+                            model.saveApiKey(keyDraft, chosenProvider)
                             keyDraft = ""
                         },
                         enabled = keyDraft.isNotBlank(),

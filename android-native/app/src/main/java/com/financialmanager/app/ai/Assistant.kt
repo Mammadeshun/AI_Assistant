@@ -61,23 +61,56 @@ class Secrets(context: Context) {
     val persistent: Boolean get() = prefs != null
 
     private var sessionKey: String? = null
+    private var sessionProvider: String? = null
 
     fun apiKey(): String? =
         (prefs?.getString(KEY, null) ?: sessionKey)?.takeIf { it.isNotBlank() }
 
     fun hasApiKey(): Boolean = apiKey() != null
 
-    fun setApiKey(value: String) {
-        if (prefs != null) prefs.edit().putString(KEY, value).apply() else sessionKey = value
+    fun provider(): Provider = Provider.parse(prefs?.getString(PROVIDER, null) ?: sessionProvider)
+
+    fun setApiKey(value: String, provider: Provider) {
+        if (prefs != null) {
+            prefs.edit().putString(KEY, value).putString(PROVIDER, provider.name).apply()
+        } else {
+            sessionKey = value
+            sessionProvider = provider.name
+        }
     }
 
     fun clearApiKey() {
-        prefs?.edit()?.remove(KEY)?.apply()
+        prefs?.edit()?.remove(KEY)?.remove(PROVIDER)?.apply()
         sessionKey = null
+        sessionProvider = null
     }
 
     private companion object {
-        const val KEY = "anthropic_api_key"
+        const val KEY = "api_key"
+        const val PROVIDER = "api_provider"
+    }
+}
+
+/**
+ * Which service answers the questions.
+ *
+ * Both are pay-as-you-go on your own key. Gemini also has a free tier that
+ * comfortably covers a few questions a day, so the choice mostly comes down to
+ * which account you already have credit on.
+ */
+enum class Provider(val label: String, val keyHint: String, val console: String) {
+    ANTHROPIC("Claude", "sk-ant-…", "console.anthropic.com"),
+    GEMINI("Gemini", "AIza…", "aistudio.google.com/apikey");
+
+    companion object {
+        fun parse(value: String?): Provider = entries.firstOrNull { it.name == value } ?: ANTHROPIC
+
+        /** Both services issue keys with a recognisable prefix. */
+        fun guessFrom(key: String): Provider? = when {
+            key.startsWith("sk-ant-") -> ANTHROPIC
+            key.startsWith("AIza") -> GEMINI
+            else -> null
+        }
     }
 }
 
@@ -100,58 +133,115 @@ class Assistant(private val dao: TransactionDao) {
 
     suspend fun ask(
         apiKey: String,
+        provider: Provider,
         history: List<ChatMessage>,
         currency: String,
     ): ChatMessage = withContext(Dispatchers.IO) {
-        val facts = buildFacts(currency)
+        val system = SYSTEM_PROMPT + "\n\n" + buildFacts(currency)
+        val turns = history.filterNot { it.isError }
 
-        val messages = buildJsonArray {
-            for (message in history.filterNot { it.isError }) {
-                add(
-                    buildJsonObject {
-                        put("role", if (message.role == "user") "user" else "assistant")
-                        put("content", message.text)
-                    }
-                )
-            }
+        val request = when (provider) {
+            Provider.ANTHROPIC -> anthropicRequest(apiKey, system, turns)
+            Provider.GEMINI -> geminiRequest(apiKey, system, turns)
         }
-
-        val body = buildJsonObject {
-            put("model", MODEL)
-            put("max_tokens", 1024)
-            put("system", SYSTEM_PROMPT + "\n\n" + facts)
-            put("messages", messages)
-        }
-
-        val request = Request.Builder()
-            .url("https://api.anthropic.com/v1/messages")
-            .addHeader("x-api-key", apiKey)
-            .addHeader("anthropic-version", "2023-06-01")
-            .addHeader("content-type", "application/json")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
-            .build()
 
         http.newCall(request).execute().use { response ->
             val payload = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw Exception(friendlyError(response.code, payload))
+                throw Exception(friendlyError(provider, response.code, payload))
             }
 
             val parsed = json.parseToJsonElement(payload).jsonObject
-
-            // A refusal has to be checked before the content is read: the stop
-            // reason is the model declining, not an answer to show as one.
-            if (parsed["stop_reason"]?.jsonPrimitive?.content == "refusal") {
-                throw Exception("The assistant declined to answer that one.")
+            val text = when (provider) {
+                Provider.ANTHROPIC -> readAnthropic(parsed)
+                Provider.GEMINI -> readGemini(parsed)
             }
-
-            val text = parsed["content"]?.jsonArray
-                ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }
-                ?.joinToString("\n")
-                .orEmpty()
-
             ChatMessage("assistant", text.ifBlank { "No answer came back." })
         }
+    }
+
+    private fun anthropicRequest(apiKey: String, system: String, turns: List<ChatMessage>): Request {
+        val body = buildJsonObject {
+            put("model", ANTHROPIC_MODEL)
+            put("max_tokens", 1024)
+            put("system", system)
+            put("messages", buildJsonArray {
+                turns.forEach { message ->
+                    add(buildJsonObject {
+                        put("role", if (message.role == "user") "user" else "assistant")
+                        put("content", message.text)
+                    })
+                }
+            })
+        }
+
+        return Request.Builder()
+            .url("https://api.anthropic.com/v1/messages")
+            .addHeader("x-api-key", apiKey)
+            .addHeader("anthropic-version", "2023-06-01")
+            .addHeader("content-type", "application/json")
+            .post(body.toString().toRequestBody(JSON_MEDIA))
+            .build()
+    }
+
+    private fun geminiRequest(apiKey: String, system: String, turns: List<ChatMessage>): Request {
+        val body = buildJsonObject {
+            putJsonObject("system_instruction") {
+                put("parts", buildJsonArray { add(buildJsonObject { put("text", system) }) })
+            }
+            put("contents", buildJsonArray {
+                turns.forEach { message ->
+                    add(buildJsonObject {
+                        // Gemini calls the assistant "model", not "assistant".
+                        put("role", if (message.role == "user") "user" else "model")
+                        put("parts", buildJsonArray {
+                            add(buildJsonObject { put("text", message.text) })
+                        })
+                    })
+                }
+            })
+        }
+
+        // The key travels in a header rather than the query string, so it cannot
+        // be left behind in a proxy log or a crash report URL.
+        return Request.Builder()
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:generateContent")
+            .addHeader("x-goog-api-key", apiKey)
+            .addHeader("content-type", "application/json")
+            .post(body.toString().toRequestBody(JSON_MEDIA))
+            .build()
+    }
+
+    private fun readAnthropic(parsed: JsonObject): String {
+        // A refusal has to be checked before the content is read: the stop
+        // reason is the model declining, not an answer to show as one.
+        if (parsed["stop_reason"]?.jsonPrimitive?.content == "refusal") {
+            throw Exception("The assistant declined to answer that one.")
+        }
+
+        return parsed["content"]?.jsonArray
+            ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }
+            ?.joinToString("\n")
+            .orEmpty()
+    }
+
+    private fun readGemini(parsed: JsonObject): String {
+        val candidate = parsed["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?: throw Exception(
+                // No candidates at all means the prompt itself was refused.
+                parsed["promptFeedback"]?.jsonObject?.get("blockReason")?.jsonPrimitive?.content
+                    ?.let { "Gemini blocked that question ($it)." }
+                    ?: "Gemini sent no answer back."
+            )
+
+        if (candidate["finishReason"]?.jsonPrimitive?.content == "SAFETY") {
+            throw Exception("Gemini declined to answer that one.")
+        }
+
+        return candidate["content"]?.jsonObject?.get("parts")?.jsonArray
+            ?.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.content }
+            ?.joinToString("\n")
+            .orEmpty()
     }
 
     /**
@@ -196,21 +286,31 @@ class Assistant(private val dao: TransactionDao) {
 
     private fun fmt(minor: Long, currency: String) = Money.format(minor, currency)
 
-    private fun friendlyError(code: Int, payload: String): String = when (code) {
-        401 -> "That API key was rejected. Check it in Settings."
-        403 -> "That API key isn't allowed to use this model."
-        429 -> "Rate limited by the API — wait a moment and ask again."
-        in 500..599 -> "Anthropic's API is having trouble. Try again shortly."
-        else -> runCatching {
+    private fun friendlyError(provider: Provider, code: Int, payload: String): String {
+        val detail = runCatching {
             json.parseToJsonElement(payload).jsonObject["error"]
                 ?.jsonObject?.get("message")?.jsonPrimitive?.content
-        }.getOrNull() ?: "The request failed ($code)."
+        }.getOrNull()
+
+        return when (code) {
+            401, 403 -> "That ${provider.label} key was rejected. Check it in Settings."
+            404 -> "That model isn't available on your ${provider.label} key. ${detail.orEmpty()}".trim()
+            429 -> "Rate limited by ${provider.label} — wait a moment and ask again."
+            in 500..599 -> "${provider.label} is having trouble. Try again shortly."
+            // A billing problem arrives as a 400 with the reason in the body,
+            // so the message from the service is more use than anything here.
+            else -> detail ?: "The request failed ($code)."
+        }
     }
 
     private companion object {
-        // The cheapest model that handles this well, so a small amount of API
-        // credit lasts a long time.
-        const val MODEL = "claude-haiku-4-5"
+        val JSON_MEDIA = "application/json".toMediaType()
+
+        // The cheapest model on each side that does this job well, so a small
+        // amount of credit lasts a long time. Gemini's Flash models also have a
+        // free tier that covers a few questions a day without any billing.
+        const val ANTHROPIC_MODEL = "claude-haiku-4-5"
+        const val GEMINI_MODEL = "gemini-2.5-flash"
 
         val SYSTEM_PROMPT = """
             You help someone understand their own spending. You are given their
