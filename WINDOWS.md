@@ -1,74 +1,77 @@
 # Windows: start here
 
-No terminal, no git, no commands to memorise. Four steps.
+## The easy way — one file, nothing to install
 
-## 1. Install Python
+**[Download FinancialManager.exe](https://github.com/Mammadeshun/AI_Assistant/releases/download/windows-build/FinancialManager.exe)**  (30 MB)
 
-Download it from **[python.org/downloads](https://www.python.org/downloads/)**
-and run the installer.
+1. Put it somewhere sensible first — a folder like `Documents\Finances`. The app
+   creates its database next to itself, so where you put it is where your data
+   lives.
+2. **Double-click it.**
+3. Windows will warn that the publisher is unknown. That is because the file
+   isn't code-signed, not because anything is wrong with it. Click
+   **More info** then **Run anyway**.
+4. A black window opens and your browser follows a few seconds later.
+5. If Windows asks about the firewall, click **Allow** — without it your phone
+   can't reach the app.
 
-> **On the very first screen, tick “Add python.exe to PATH”.**
-> It's a small checkbox at the bottom and it is easy to miss. Without it,
-> Windows won't find Python and you'll get *“python is not recognized”*.
+Create your account on the page that opens. That is the whole installation:
+Python is bundled inside the .exe, so there is nothing else to install.
 
-If you already installed Python and got that message, run the installer again,
-choose **Modify**, and make sure that box is ticked.
+**Keep the black window open** while you use the app. Closing it stops the app.
+To start again another day, double-click the same file.
 
-## 2. Download the app
+## Putting it on your phone
 
-Open this link — it downloads a ZIP:
-
-<https://github.com/mammadeshun/ai_assistant/archive/refs/heads/claude/financial-manager-revolut-07q4wi.zip>
-
-Then **right-click the downloaded file → Extract All**. Put it somewhere you'll
-find again, like your Documents folder.
-
-## 3. Start it
-
-Open the extracted folder and **double-click `start-windows.bat`**.
-
-A black window opens. The first time, it spends a few minutes installing things
-— that's normal, and it only happens once. Then your browser opens on the app
-by itself.
-
-**When Windows asks whether to allow Python through the firewall, click Allow.**
-Without that, your phone can't reach it.
-
-Leave the black window open. Closing it stops the app.
-
-Create your account on the page that opens. You're done on the laptop.
-
-## 4. Put it on your phone
-
-In the black window, find the line that looks like this:
+In the black window, find:
 
 ```
-From your phone:       http://192.168.43.100:8000   <- use this in the app
+From your phone:   http://192.168.43.100:8000
+                   ^ type this into the Android app
 ```
 
-Your numbers will be different. Type **your** address into the Android app.
+Your numbers will differ — use what your window shows. The phone and the laptop
+must be on the same network; your phone's hotspot counts, if the laptop is
+connected to it.
 
-The phone and the laptop must be on the same network. Your phone's hotspot
-counts — if the laptop is connected to it, you're already set.
+## Where your data lives
 
----
+Next to the .exe, in two places:
 
-## If it doesn't work
+- `data\finance.db` — your accounts and transactions
+- `.env` — your settings and API keys (open it in Notepad to add them)
 
-**“python is not recognized”** — the PATH checkbox in step 1 was missed. Re-run
-the Python installer, choose Modify, tick it, then try again.
+Back it up by copying that folder. Move the folder to another machine and it
+carries on where it left off.
 
-**The black window flashes and disappears** — it's reporting an error too fast
-to read. Open the folder, click the address bar at the top, type `cmd` and press
-Enter, then type `python start.py` and press Enter. Now the error stays on
-screen. Send it to me.
+## If something goes wrong
 
-**The browser opens but the page won't load** — give it a few seconds and
-refresh. If it still fails, the black window will say why.
+**The window flashes and disappears** — the app is reporting an error too
+quickly to read. It shouldn't do this (it waits for a keypress on failure), but
+if it does, open Command Prompt in that folder and run `FinancialManager.exe`
+from there so the message stays on screen.
 
-**The phone can't connect** — nearly always the firewall. Go to Windows Security
-→ Firewall & network protection → Allow an app through firewall → find Python
-and tick both Private and Public.
+**"Windows protected your PC"** — SmartScreen. **More info** then **Run anyway**.
+It appears because the file isn't code-signed; signing costs money every year.
 
-**Everything else** — copy the last ten lines from the black window and send
-them to me. That text says exactly what went wrong.
+**Antivirus quarantines it** — PyInstaller executables are sometimes flagged by
+heuristics, because malware uses PyInstaller too. If yours objects, allow it, or
+use the from-source method below.
+
+**The browser doesn't open** — type `http://localhost:8000` in yourself.
+
+**The phone can't connect** — nearly always the firewall. Windows Security →
+Firewall & network protection → Allow an app through firewall → find
+FinancialManager and tick both Private and Public.
+
+## The other way — running from source
+
+If you would rather not use a prebuilt executable, or you want to change the
+code:
+
+1. Install Python from [python.org](https://www.python.org/downloads/), ticking
+   **Add python.exe to PATH** on the first screen.
+2. Download the repository as a ZIP and extract it.
+3. Double-click `start-windows.bat`.
+
+That builds everything locally instead of using the packaged build. Same app.

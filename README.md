@@ -80,8 +80,9 @@ so you can't be shown a stale balance.
 
 ## Getting started
 
-**On Windows? Read [WINDOWS.md](WINDOWS.md)** — no terminal or git needed, four
-steps with a download link.
+**On Windows, there is nothing to install:**
+[download FinancialManager.exe](https://github.com/Mammadeshun/AI_Assistant/releases/download/windows-build/FinancialManager.exe)
+and double-click it. Python is bundled inside. See [WINDOWS.md](WINDOWS.md).
 
 One command, on Windows, macOS or Linux:
 
