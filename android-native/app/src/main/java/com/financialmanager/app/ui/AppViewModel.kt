@@ -6,10 +6,14 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.financialmanager.app.ai.Assistant
 import com.financialmanager.app.ai.ChatMessage
+import com.financialmanager.app.ai.Extraction
+import com.financialmanager.app.ai.PhotoExtractor
+import com.financialmanager.app.ai.ProposedCommitment
 import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.ai.Secrets
 import com.financialmanager.app.categorise.Categoriser
 import com.financialmanager.app.data.Budget
+import com.financialmanager.app.data.CashHolding
 import com.financialmanager.app.data.CategoryTotal
 import com.financialmanager.app.data.Commitment
 import com.financialmanager.app.data.CommitmentKind
@@ -55,6 +59,14 @@ data class Dashboard(
 }
 
 /** What the import sheet is doing right now. */
+/** Where the photo-reading flow has got to. */
+sealed interface ExtractionState {
+    data object Idle : ExtractionState
+    data object Working : ExtractionState
+    data class Ready(val extraction: Extraction) : ExtractionState
+    data class Failed(val message: String) : ExtractionState
+}
+
 sealed interface ImportState {
     data object Idle : ImportState
     data object Working : ImportState
@@ -69,6 +81,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val dao = db.transactions()
     private val commitmentDao = db.commitments()
     private val budgetDao = db.budgets()
+    private val cashDao = db.cash()
+    private val photos = PhotoExtractor(application)
     private val secrets = Secrets(application)
     private val assistant = Assistant(dao, commitmentDao)
 
@@ -170,7 +184,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 val start = month
                 val end = month.plusMonths(1).minusDays(1)
                 combine(
-                    dao.balance(currency),
+                    combine(dao.balance(currency), cashDao.forCurrency(currency)) { bank, cash ->
+                        // Cash in a pocket is real money and no statement knows
+                        // about it, so it belongs in the balance being planned
+                        // against.
+                        bank + (cash?.amountMinor ?: 0L)
+                    },
                     dao.incomeBetween(currency, start, end),
                     dao.spendBetween(currency, start, end),
                     commitmentDao.active(),
@@ -351,6 +370,69 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
+    /* --- cash -------------------------------------------------------- */
+
+    val cash: StateFlow<Long> = _currency
+        .flatMapLatest { cashDao.forCurrency(it) }
+        .map { it?.amountMinor ?: 0L }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0L)
+
+    fun setCash(amountMinor: Long) {
+        viewModelScope.launch {
+            if (amountMinor <= 0) cashDao.clear(_currency.value)
+            else cashDao.set(CashHolding(_currency.value, amountMinor))
+            SafeToSpendWidget.refresh(getApplication())
+        }
+    }
+
+    /* --- reading a photo --------------------------------------------- */
+
+    private val _extraction = MutableStateFlow<ExtractionState>(ExtractionState.Idle)
+    val extraction: StateFlow<ExtractionState> = _extraction.asStateFlow()
+
+    fun readPhoto(uri: android.net.Uri) {
+        val key = secrets.apiKey() ?: run {
+            _extraction.value = ExtractionState.Failed(
+                "Add an API key in Settings first — reading a picture needs one."
+            )
+            return
+        }
+        viewModelScope.launch {
+            _extraction.value = ExtractionState.Working
+            _extraction.value = try {
+                ExtractionState.Ready(
+                    photos.extract(key, secrets.provider(), uri, _currency.value)
+                )
+            } catch (error: Throwable) {
+                ExtractionState.Failed(error.message ?: "That picture could not be read.")
+            }
+        }
+    }
+
+    /** Saves only the lines the user ticked. Nothing is written before that. */
+    fun acceptProposals(proposals: List<ProposedCommitment>) {
+        viewModelScope.launch {
+            proposals.forEach { proposal ->
+                commitmentDao.insert(
+                    Commitment(
+                        name = proposal.name,
+                        kind = proposal.kind,
+                        amountMinor = proposal.monthlyAmountMinor,
+                        currency = proposal.currency,
+                        dayOfMonth = proposal.dayOfMonth,
+                        remainingMinor = proposal.remainingMinor
+                            ?: proposal.instalmentsLeft?.let { it * proposal.monthlyAmountMinor },
+                        note = proposal.note,
+                    )
+                )
+            }
+            _extraction.value = ExtractionState.Idle
+            SafeToSpendWidget.refresh(getApplication())
+        }
+    }
+
+    fun dismissExtraction() { _extraction.value = ExtractionState.Idle }
 
     /* --- budgets ----------------------------------------------------- */
 

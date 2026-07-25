@@ -147,20 +147,55 @@ object Tabular {
     fun parseAmount(value: String): BigDecimal? {
         if (value.isBlank()) return BigDecimal.ZERO
 
-        val negative = value.startsWith("(") && value.endsWith(")")
-        var cleaned = value.trim().trim('(', ')')
-        for (symbol in listOf("€", "£", "$", " ", " ")) cleaned = cleaned.replace(symbol, "")
+        val trimmed = value.trim()
+        val negative = trimmed.startsWith("-") || (trimmed.startsWith("(") && trimmed.endsWith(")"))
 
-        // A comma is a thousands separator here and a decimal point there. With
-        // exactly two digits after it and no dot present, it is a decimal point.
-        cleaned = if (Regex("^-?\\d{1,3}(,\\d{3})+(\\.\\d+)?$").matches(cleaned)) {
-            cleaned.replace(",", "")
-        } else {
-            cleaned.replace(",", ".")
-        }
+        var cleaned = trimmed.trim('(', ')').removePrefix("-").removePrefix("+")
+        for (symbol in listOf("€", "£", "$", " ", " ")) cleaned = cleaned.replace(symbol, "")
 
-        if (cleaned.isEmpty() || cleaned == "-" || cleaned == ".") return BigDecimal.ZERO
+        cleaned = normaliseSeparators(cleaned)
+        if (cleaned.isEmpty() || cleaned == ".") return BigDecimal.ZERO
+
         val amount = cleaned.toBigDecimalOrNull() ?: return null
         return if (negative) amount.negate() else amount
+    }
+
+    /**
+     * Works out which separator is the decimal point.
+     *
+     * "1,234.56" and "1.234,56" are the same amount written for different
+     * countries, and reading it backwards turns twelve hundred euros into
+     * twelve. Where both characters appear the rightmost is the decimal point.
+     * Where only one appears it is grouping if it repeats, or if exactly three
+     * digits follow it — "1.234" is a thousand. One or two digits after it make
+     * it a decimal point.
+     *
+     * The cost of that rule is a three-decimal currency like the Kuwaiti dinar,
+     * where "12.345" is read as 12345. Those are rare, and the alternative
+     * misreads every European thousand.
+     */
+    private fun normaliseSeparators(text: String): String {
+        val lastDot = text.lastIndexOf('.')
+        val lastComma = text.lastIndexOf(',')
+
+        if (lastDot < 0 && lastComma < 0) return text
+
+        if (lastDot >= 0 && lastComma >= 0) {
+            val decimalAt = maxOf(lastDot, lastComma)
+            val whole = text.take(decimalAt).filter(Char::isDigit)
+            val fraction = text.drop(decimalAt + 1).filter(Char::isDigit)
+            return if (fraction.isEmpty()) whole else "$whole.$fraction"
+        }
+
+        val separator = if (lastDot >= 0) '.' else ','
+        val at = maxOf(lastDot, lastComma)
+        val digitsAfter = text.length - at - 1
+        val grouping = text.count { it == separator } > 1 || digitsAfter == 3
+
+        return if (grouping) {
+            text.filter(Char::isDigit)
+        } else {
+            text.replace(separator.toString(), ".")
+        }
     }
 }

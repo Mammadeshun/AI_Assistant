@@ -56,8 +56,9 @@ class ScreensRenderTest {
                 PlanScreen(model(), PaddingValues(0.dp()))
             }
         }
+        // Only the cards a lazy list has actually composed can be asserted on.
         compose.onNodeWithText("SAFE TO SPEND").assertIsDisplayed()
-        compose.onNodeWithText("Monthly commitments").assertIsDisplayed()
+        compose.onNodeWithText("Cash on hand").assertIsDisplayed()
     }
 
     @Test

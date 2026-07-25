@@ -19,9 +19,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.AssistChip
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +39,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,9 +72,19 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
     val suggestions by model.suggestions.collectAsStateWithLifecycle()
     val budgets by model.budgetProgress.collectAsStateWithLifecycle()
 
+    val cash by model.cash.collectAsStateWithLifecycle()
+    val extraction by model.extraction.collectAsStateWithLifecycle()
+
     var editing by remember { mutableStateOf<Commitment?>(null) }
     var adding by remember { mutableStateOf(false) }
     var budgetFor by remember { mutableStateOf<String?>(null) }
+    var editingCash by remember { mutableStateOf(false) }
+
+    // The system photo picker: no storage permission, and it only ever hands
+    // over the one image the user chose.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri -> uri?.let(model::readPhoto) }
 
     LaunchedEffect(Unit) { model.findSuggestions() }
 
@@ -81,6 +98,68 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { SafeToSpendCard(plan) }
+
+        item {
+            SectionCard(
+                "Cash on hand",
+                trailing = {
+                    TextButton(onClick = { editingCash = true }) {
+                        Text(if (cash > 0) "Update" else "Add")
+                    }
+                },
+            ) {
+                if (cash > 0) {
+                    Text(Money.format(cash, plan.currency), style = MoneyLarge)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Counted in everything above.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "Notes and coins in your pocket never appear in a statement, so the " +
+                            "app is short by however much you carry until you say.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionCard("Read a plan from a photo") {
+                Text(
+                    "Point it at a Klarna, Scalapay or loan screen and it fills in the " +
+                        "amounts and dates for you. You confirm each one before anything " +
+                        "is saved.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                if (extraction is com.financialmanager.app.ui.ExtractionState.Working) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Text("Reading the picture…", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else {
+                    Button(onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }) { Text("Choose a photo") }
+                }
+                (extraction as? com.financialmanager.app.ui.ExtractionState.Failed)?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        it.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
 
         if (suggestions.isNotEmpty()) {
             item {
@@ -218,6 +297,23 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
                     editing = null
                 }
             },
+        )
+    }
+
+    if (editingCash) {
+        CashEditor(
+            currency = plan.currency,
+            existing = cash,
+            onDismiss = { editingCash = false },
+            onSave = { model.setCash(it); editingCash = false },
+        )
+    }
+
+    (extraction as? com.financialmanager.app.ui.ExtractionState.Ready)?.let { ready ->
+        ExtractionReview(
+            extraction = ready.extraction,
+            onDismiss = model::dismissExtraction,
+            onAccept = model::acceptProposals,
         )
     }
 
@@ -643,4 +739,150 @@ private fun ordinal(day: Int): String {
         else -> "th"
     }
     return "$day$suffix"
+}
+
+/**
+ * Lets the user say how much cash they are carrying.
+ *
+ * A bank export cannot know this, and without it every figure the app shows is
+ * short by whatever is in a pocket.
+ */
+@Composable
+fun CashEditor(
+    currency: String,
+    existing: Long,
+    onDismiss: () -> Unit,
+    onSave: (Long) -> Unit,
+) {
+    var amount by remember {
+        mutableStateOf(if (existing > 0) decimalOf(existing, currency) else "")
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Cash on hand") },
+        text = {
+            Column {
+                Text(
+                    "Notes and coins you are carrying. It is added to the balance " +
+                        "everything else is worked out from, and only you can update it — " +
+                        "no statement knows what is in your wallet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("Amount ($currency)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Set it to zero to remove it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = amount.isBlank() || parseMoney(amount, currency) != null,
+                onClick = { onSave(parseMoney(amount, currency) ?: 0L) },
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Shows what was read out of a picture and lets the user accept it line by line.
+ *
+ * The confirmation step is the point. A screenshot can be misread, and a wrong
+ * instalment plan added silently would be worse than not having the feature —
+ * so nothing reaches the user's finances until they have ticked it here.
+ */
+@Composable
+fun ExtractionReview(
+    extraction: com.financialmanager.app.ai.Extraction,
+    onDismiss: () -> Unit,
+    onAccept: (List<com.financialmanager.app.ai.ProposedCommitment>) -> Unit,
+) {
+    val chosen = remember {
+        mutableStateListOf<Boolean>().apply { repeat(extraction.proposals.size) { add(true) } }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Found in that picture") },
+        text = {
+            Column {
+                if (extraction.summary.isNotBlank()) {
+                    Text(
+                        extraction.summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(extraction.proposals.size) { index ->
+                        val proposal = extraction.proposals[index]
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { chosen[index] = !chosen[index] }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = chosen[index],
+                                onCheckedChange = { chosen[index] = it },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(proposal.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    buildString {
+                                        append(proposal.kind.label)
+                                        proposal.dayOfMonth?.let { append(" · on the ${ordinal(it)}") }
+                                        proposal.instalmentsLeft?.let { append(" · $it left") }
+                                        proposal.remainingMinor?.let {
+                                            append(" · ${Money.format(it, proposal.currency)} owed")
+                                        }
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Text(
+                                Money.format(proposal.monthlyAmountMinor, proposal.currency),
+                                style = MoneyMedium,
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Check these against the picture before saving — anything read from an " +
+                        "image can be wrong, and you can edit each one afterwards.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = chosen.any { it },
+                onClick = {
+                    onAccept(extraction.proposals.filterIndexed { index, _ -> chosen[index] })
+                },
+            ) { Text("Add ${chosen.count { it }}") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

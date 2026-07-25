@@ -173,3 +173,55 @@ class XlsxStatementTest {
         )
     }
 }
+
+/** Which separator is the decimal point, which is grouping. */
+class AmountSeparatorTest {
+
+    private fun amount(text: String) = Tabular.parseAmount(text)?.toPlainString()
+
+    @Test
+    fun `both separators present means the rightmost is the decimal point`() {
+        // The same amount, written for two countries. Reading it backwards turns
+        // twelve hundred euros into twelve.
+        assertEquals("1234.56", amount("1,234.56"))
+        assertEquals("1234.56", amount("1.234,56"))
+        assertEquals("1234567.89", amount("1,234,567.89"))
+        assertEquals("1234567.89", amount("1.234.567,89"))
+    }
+
+    @Test
+    fun `a lone separator with two digits after it is a decimal point`() {
+        assertEquals("12.50", amount("12,50"))
+        assertEquals("12.50", amount("12.50"))
+        assertEquals("-6.99", amount("-6.99"))
+    }
+
+    @Test
+    fun `a lone separator with three digits after it is grouping`() {
+        assertEquals("1234", amount("1,234"))
+        assertEquals("1234", amount("1.234"))
+    }
+
+    @Test
+    fun `repeated separators are always grouping`() {
+        assertEquals("1234567", amount("1,234,567"))
+    }
+
+    @Test
+    fun `currency symbols and signs are stripped`() {
+        assertEquals("1234.56", amount("€1.234,56"))
+        assertEquals("-42.50", amount("-£42.50"))
+        assertEquals("-100.00", amount("(100.00)"))
+    }
+
+    @Test
+    fun `float artefacts survive as exact decimals`() {
+        assertEquals("16.010000000000002", amount("16.010000000000002"))
+    }
+
+    @Test
+    fun `nonsense is refused rather than guessed`() {
+        assertEquals(null, amount("about twenty euros"))
+        assertEquals("0", amount(""))
+    }
+}
