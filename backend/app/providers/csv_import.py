@@ -12,7 +12,12 @@ import io
 from datetime import date, datetime
 from typing import Any, Iterable
 
-from .base import NormalisedTransaction, ProviderError, to_minor
+from .base import (
+    NormalisedTransaction,
+    ProviderError,
+    assign_occurrence_ids,
+    to_minor,
+)
 
 # Header aliases, lowercased. Revolut's own export uses the first of each group.
 _DATE_FIELDS = ("completed date", "started date", "date", "booking date", "date completed", "value date")
@@ -101,7 +106,7 @@ def parse_csv(content: bytes | str, default_currency: str = "GBP") -> list[Norma
         description = (row.get(description_key) or "").strip() if description_key else ""
         out.append(
             NormalisedTransaction(
-                external_id=None,  # CSV rows have no stable id; dedupe on content
+                external_id=None,  # filled in below, once repeats can be counted
                 booked_at=booked_at,
                 value_date=booked_at,
                 amount_minor=amount_minor,
@@ -116,6 +121,8 @@ def parse_csv(content: bytes | str, default_currency: str = "GBP") -> list[Norma
 
     if not out:
         raise ProviderError("No transactions could be parsed from that file.")
+
+    assign_occurrence_ids(out, "csv")
     return out
 
 

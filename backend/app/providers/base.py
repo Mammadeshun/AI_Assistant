@@ -67,6 +67,34 @@ class NormalisedTransaction:
         return hashlib.sha256(basis.encode()).hexdigest()[:32]
 
 
+def assign_occurrence_ids(transactions: list[NormalisedTransaction], prefix: str) -> None:
+    """Give rows from a statement file a stable identity of their own.
+
+    A statement can legitimately list the same purchase twice on one day — two
+    identical coffees — and the content hash alone treats them as one row, so
+    the second is lost on import. Numbering the repeats within their day keeps
+    them distinct without making the id depend on anything that changes between
+    exports, so re-importing an overlapping statement still recognises the rows
+    it already has.
+    """
+    seen: dict[str, int] = {}
+    for txn in transactions:
+        if txn.external_id:
+            continue
+        basis = "|".join(
+            [
+                txn.booked_at.isoformat(),
+                str(txn.amount_minor),
+                txn.currency,
+                " ".join((txn.description or "").lower().split()),
+            ]
+        )
+        occurrence = seen.get(basis, 0)
+        seen[basis] = occurrence + 1
+        digest = hashlib.sha256(f"{basis}|{occurrence}".encode()).hexdigest()[:24]
+        txn.external_id = f"{prefix}:{digest}"
+
+
 # Called by a provider when it rotates tokens, so the caller can persist them.
 CredentialSink = Callable[[dict[str, Any]], None]
 

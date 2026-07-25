@@ -139,3 +139,56 @@ def test_defaults_are_idempotent(db, user_id):
     second = ensure_default_categories(db, user_id)
     db.commit()
     assert {c.id for c in first.values()} == {c.id for c in second.values()}
+
+
+def test_italian_merchants_are_recognised(db, user_id):
+    # A statement from an Italian account is mostly names the UK keyword list
+    # has never heard of.
+    categoriser = _categoriser(db, user_id)
+    expected = {
+        "Eurospin": "Groceries",
+        "Esselunga": "Groceries",
+        "Trenitalia": "Transport",
+        "ATM - Azienda Trasporti Milanesi": "Transport",
+        "Bar Sottovento": "Restaurants & Cafés",
+        "Il Caffè all'Università": "Restaurants & Cafés",
+        "Farmacia Formaggia": "Health & Fitness",
+        "iliad": "Bills & Utilities",
+        "Tigotà": "Shopping",
+    }
+    for merchant, category in expected.items():
+        result = categoriser.categorise(merchant, merchant, None, None, None, -500)
+        assert result.category_id == categoriser.categories[category].id, merchant
+
+
+def test_the_milan_transport_operator_is_not_a_cash_machine(db, user_id):
+    # "ATM" is Milan's bus company as well as a hole in the wall.
+    categoriser = _categoriser(db, user_id)
+    result = categoriser.categorise(
+        "ATM - Azienda Trasporti Milanesi", "ATM - Azienda Trasporti Milanesi",
+        None, None, None, -200,
+    )
+    assert result.category_id == categoriser.categories["Transport"].id
+
+    withdrawal = categoriser.categorise("Cash withdrawal", None, None, None, "atm", -5000)
+    assert withdrawal.category_id == categoriser.categories["Cash & ATM"].id
+
+
+def test_payments_to_people_are_transfers_not_shopping(db, user_id):
+    # The counterparty is a person; merchant keywords must not be matched
+    # against their name.
+    categoriser = _categoriser(db, user_id)
+    result = categoriser.categorise("To Md Shamsuddin", "Md Shamsuddin", None, None, None, -2000)
+
+    assert result.category_id == categoriser.categories["Transfers"].id
+    assert result.is_transfer is True
+
+
+def test_short_chain_names_only_match_the_whole_merchant(db, user_id):
+    categoriser = _categoriser(db, user_id)
+
+    chain = categoriser.categorise("MD", "MD", None, None, None, -1500)
+    assert chain.category_id == categoriser.categories["Groceries"].id
+
+    person = categoriser.categorise("Md Shamsuddin", "Md Shamsuddin", None, None, None, -1500)
+    assert person.category_id != categoriser.categories["Groceries"].id

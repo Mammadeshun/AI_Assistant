@@ -84,7 +84,14 @@ def test_manual_account_and_csv_import(authed_client):
     response = authed_client.post(f"/api/accounts/{account['id']}/import", files=files)
 
     assert response.status_code == 200
-    assert response.json() == {"account_id": account["id"], "parsed": 2, "added": 2, "updated": 0}
+    assert response.json() == {
+        "account_id": account["id"],
+        "parsed": 2,
+        "added": 2,
+        "updated": 0,
+        "format": "csv",
+        "dates_estimated": 0,
+    }
 
     # Re-importing the same file must not duplicate anything.
     files = {"file": ("statement.csv", io.BytesIO(csv_content.encode()), "text/csv")}
@@ -329,3 +336,28 @@ def test_successful_login_clears_the_failure_count(authed_client):
         json={"email": "me@example.com", "password": "a-long-enough-password"},
     ).raise_for_status()
     assert not auth_router._failed_logins.get("me@example.com")
+
+
+def test_import_adopts_the_currency_the_money_is_actually_in(authed_client):
+    # Totals are never converted, so a EUR statement under the default GBP base
+    # currency would show a dashboard of zeros with everything filed as "other".
+    account = authed_client.post(
+        "/api/accounts",
+        json={"name": "Revolut EUR", "currency": "EUR", "opening_balance_minor": 0},
+    ).json()
+
+    csv_content = (
+        "Type,Completed Date,Description,Amount,Currency,State\n"
+        "CARD_PAYMENT,2025-03-01 09:00:00,Esselunga,-42.50,EUR,COMPLETED\n"
+    )
+    files = {"file": ("statement.csv", io.BytesIO(csv_content.encode()), "text/csv")}
+    authed_client.post(f"/api/accounts/{account['id']}/import", files=files)
+
+    assert authed_client.get("/api/auth/me").json()["base_currency"] == "EUR"
+
+    summary = authed_client.get(
+        "/api/analytics/summary?start=2025-03-01&end=2025-03-31"
+    ).json()
+    assert summary["currency"] == "EUR"
+    assert summary["expense_minor"] == 4250
+    assert summary["other_currencies"] == []

@@ -9,7 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import Settings, get_settings
-from ..models import Account, Connection, ConnectionStatus, SyncLog, Transaction, utcnow
+from ..models import (
+    Account,
+    Connection,
+    ConnectionStatus,
+    SyncLog,
+    Transaction,
+    User,
+    utcnow,
+)
 from ..providers.base import (
     BankProvider,
     ConsentExpired,
@@ -257,10 +265,46 @@ def _since_for(
 def import_normalised(
     db: Session, account: Account, transactions: list[NormalisedTransaction]
 ) -> tuple[int, int]:
-    """Used by the CSV importer; shares the dedupe/categorise path with live syncs."""
+    """Used by the file importers; shares the dedupe/categorise path with live syncs."""
     categoriser = Categoriser(db, account.user_id)
     added, updated = _upsert_transactions(db, account, transactions, categoriser)
     account.last_synced_at = datetime.now(timezone.utc)
     db.add(account)
     db.commit()
+    adopt_single_currency(db, account.user_id)
     return added, updated
+
+
+def adopt_single_currency(db: Session, user_id: int) -> str | None:
+    """Point the dashboard at the currency the user's money is actually in.
+
+    Totals are never converted, so a EUR statement under the default GBP base
+    currency produces a dashboard of zeros with everything filed under "other
+    currencies" — accurate, and useless. When every transaction on the books is
+    in one currency there is nothing to weigh up, so the base currency follows
+    it. Anyone holding two currencies has made a real choice, and it is left
+    alone.
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        return None
+
+    currencies = set(
+        db.scalars(
+            select(Transaction.currency)
+            .join(Account, Transaction.account_id == Account.id)
+            .where(Account.user_id == user_id)
+            .distinct()
+        )
+    )
+    if len(currencies) != 1:
+        return None
+
+    only = currencies.pop().upper()
+    if only == user.base_currency.upper():
+        return None
+
+    user.base_currency = only
+    db.add(user)
+    db.commit()
+    return only

@@ -10,6 +10,7 @@ from ..deps import current_user
 from ..models import Account, Transaction, User, utcnow
 from ..providers.base import ProviderError
 from ..providers.csv_import import parse_csv
+from ..providers.pdf_import import count_undated, parse_pdf
 from ..schemas import AccountOut, AccountUpdate, ImportResponse, ManualAccountCreate
 from ..services.sync import import_normalised
 
@@ -78,10 +79,12 @@ async def import_statement(
     user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> ImportResponse:
-    """Import a CSV statement into an existing account.
+    """Import a CSV or PDF statement into an existing account.
 
-    Re-importing an overlapping file is safe: rows are deduplicated on a hash of
-    date + amount + description + reference.
+    Revolut hands out a PDF unless you go looking for the CSV, so both are
+    accepted and the format is detected from the bytes rather than the filename.
+    Re-importing an overlapping file is safe: rows carry a stable identity, so
+    what is already there is updated rather than duplicated.
     """
     account = db.get(Account, account_id)
     if account is None or account.user_id != user.id:
@@ -91,8 +94,12 @@ async def import_statement(
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File is larger than 10 MB.")
 
+    is_pdf = content[:5] == b"%PDF-"
     try:
-        transactions = parse_csv(content, default_currency=account.currency)
+        if is_pdf:
+            transactions = parse_pdf(content, default_currency=account.currency)
+        else:
+            transactions = parse_csv(content, default_currency=account.currency)
     except ProviderError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
@@ -111,7 +118,12 @@ async def import_statement(
         db.commit()
 
     return ImportResponse(
-        account_id=account.id, parsed=len(transactions), added=added, updated=updated
+        account_id=account.id,
+        parsed=len(transactions),
+        added=added,
+        updated=updated,
+        format="pdf" if is_pdf else "csv",
+        dates_estimated=count_undated(transactions) if is_pdf else 0,
     )
 
 

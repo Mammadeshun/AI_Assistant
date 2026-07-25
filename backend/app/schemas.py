@@ -236,6 +236,10 @@ class ImportResponse(BaseModel):
     parsed: int
     added: int
     updated: int
+    format: str = "csv"
+    # PDF statements sometimes render a date as ######## — those rows are kept,
+    # dated from the row above, and counted here so the UI can say so.
+    dates_estimated: int = 0
 
 
 # --- AI -------------------------------------------------------------------
