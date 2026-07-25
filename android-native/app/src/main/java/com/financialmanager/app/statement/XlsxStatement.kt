@@ -135,13 +135,34 @@ object XlsxStatement {
     }
 
     private fun parse(input: InputStream, handler: DefaultHandler) {
-        SAXParserFactory.newInstance().apply {
-            // These files come from the user's own bank, but a parser that
-            // resolves external entities is a liability whatever the source.
-            setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            isNamespaceAware = false
-        }.newSAXParser().parse(input, handler)
+        val factory = SAXParserFactory.newInstance().apply { isNamespaceAware = false }
+
+        // Best-effort hardening. Android's parser does not recognise all of
+        // these — asking for the Apache one throws SAXNotRecognizedException and
+        // took the whole import down with it — so each is tried and a refusal
+        // ignored. The entity resolver below is what actually does the work,
+        // and it is supported everywhere.
+        for (feature in HARDENING) {
+            runCatching { factory.setFeature(feature.first, feature.second) }
+        }
+
+        factory.newSAXParser().xmlReader.apply {
+            contentHandler = handler
+            errorHandler = handler
+            // A spreadsheet has no business fetching anything. Returning an
+            // empty document for every external reference stops a crafted file
+            // reading local files or calling out to the network.
+            entityResolver = org.xml.sax.EntityResolver { _, _ ->
+                org.xml.sax.InputSource(java.io.StringReader(""))
+            }
+        }.parse(org.xml.sax.InputSource(input))
     }
+
+    private val HARDENING = listOf(
+        "http://apache.org/xml/features/disallow-doctype-decl" to true,
+        "http://xml.org/sax/features/external-general-entities" to false,
+        "http://xml.org/sax/features/external-parameter-entities" to false,
+    )
 
     private fun localName(name: String?): String = name.orEmpty().substringAfterLast(':')
 

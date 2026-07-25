@@ -86,4 +86,90 @@ class XlsxStatementTest {
         assertTrue(transactions.all { it.bookedAt >= LocalDate.of(2023, 1, 1) })
         assertTrue(transactions.all { it.bookedAt <= LocalDate.now().plusDays(1) })
     }
+
+    /**
+     * Builds a minimal .xlsx in memory so the reader can be exercised without a
+     * real bank export.
+     */
+    private fun workbook(sheet: String, sharedStrings: String? = null): File {
+        val file = File.createTempFile("test", ".xlsx")
+        java.util.zip.ZipOutputStream(file.outputStream()).use { zip ->
+            zip.putNextEntry(java.util.zip.ZipEntry("xl/worksheets/sheet1.xml"))
+            zip.write(sheet.toByteArray())
+            zip.closeEntry()
+            if (sharedStrings != null) {
+                zip.putNextEntry(java.util.zip.ZipEntry("xl/sharedStrings.xml"))
+                zip.write(sharedStrings.toByteArray())
+                zip.closeEntry()
+            }
+        }
+        return file
+    }
+
+    @Test
+    fun `reads a small workbook end to end`() {
+        val strings = """<?xml version="1.0"?><sst>""" +
+            "<si><t>Date</t></si><si><t>Description</t></si><si><t>Amount</t></si>" +
+            "<si><t>Esselunga</t></si></sst>"
+        val sheet = """<?xml version="1.0"?><worksheet><sheetData>""" +
+            """<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c>""" +
+            """<c r="C1" t="s"><v>2</v></c></row>""" +
+            """<row r="2"><c r="A2" s="1"><v>45257</v></c><c r="B2" t="s"><v>3</v></c>""" +
+            """<c r="C2"><v>-6.99</v></c></row>""" +
+            "</sheetData></worksheet>"
+
+        val transactions = XlsxStatement.parse(workbook(sheet, strings), "EUR")
+
+        assertEquals(1, transactions.size)
+        assertEquals(LocalDate.of(2023, 11, 27), transactions[0].bookedAt)
+        assertEquals(-699L, transactions[0].amountMinor)
+        assertEquals("Esselunga", transactions[0].description)
+    }
+
+    @Test
+    fun `a missing cell does not shift the columns after it`() {
+        // A spreadsheet stores an empty cell by leaving it out entirely, so
+        // columns have to come from each cell's reference. Here B2 is absent.
+        val strings = """<?xml version="1.0"?><sst>""" +
+            "<si><t>Date</t></si><si><t>Description</t></si><si><t>Amount</t></si></sst>"
+        val sheet = """<?xml version="1.0"?><worksheet><sheetData>""" +
+            """<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c>""" +
+            """<c r="C1" t="s"><v>2</v></c></row>""" +
+            """<row r="2"><c r="A2"><v>45257</v></c><c r="C2"><v>-12.50</v></c></row>""" +
+            "</sheetData></worksheet>"
+
+        val transactions = XlsxStatement.parse(workbook(sheet, strings), "EUR")
+
+        // The amount must still be read from column C, not slid into B.
+        assertEquals(-1250L, transactions[0].amountMinor)
+        assertEquals("Imported transaction", transactions[0].description)
+    }
+
+    @Test
+    fun `a file that tries to read the phone is refused its entity`() {
+        // The parser must not fetch anything a spreadsheet points it at. If the
+        // external entity were resolved, the secret would land in the
+        // description; the reader has to either ignore it or fail, never
+        // include it.
+        val secret = File.createTempFile("secret", ".txt").apply { writeText("TOPSECRET") }
+        val sheet = """<?xml version="1.0"?>""" +
+            """<!DOCTYPE worksheet [<!ENTITY xxe SYSTEM "file://${secret.absolutePath}">]>""" +
+            """<worksheet><sheetData>""" +
+            """<row r="1"><c r="A1" t="inlineStr"><is><t>Date</t></is></c>""" +
+            """<c r="B1" t="inlineStr"><is><t>Description</t></is></c>""" +
+            """<c r="C1" t="inlineStr"><is><t>Amount</t></is></c></row>""" +
+            """<row r="2"><c r="A2"><v>45257</v></c>""" +
+            """<c r="B2" t="inlineStr"><is><t>&xxe;</t></is></c>""" +
+            """<c r="C2"><v>-1.00</v></c></row>""" +
+            "</sheetData></worksheet>"
+
+        val descriptions = runCatching {
+            XlsxStatement.parse(workbook(sheet), "EUR").map { it.description }
+        }.getOrDefault(emptyList())
+
+        assertTrue(
+            "the file's contents must never reach a transaction: $descriptions",
+            descriptions.none { it.contains("TOPSECRET") },
+        )
+    }
 }
