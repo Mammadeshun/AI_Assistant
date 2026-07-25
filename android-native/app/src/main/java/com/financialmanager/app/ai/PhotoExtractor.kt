@@ -72,13 +72,15 @@ class PhotoExtractor(private val context: Context) {
         provider: Provider,
         uri: Uri,
         defaultCurrency: String,
+        /** Whatever the user typed alongside the picture, if anything. */
+        hint: String? = null,
     ): Extraction = withContext(Dispatchers.IO) {
         val image = readScaledJpeg(uri)
         val encoded = Base64.encodeToString(image, Base64.NO_WRAP)
 
         val request = when (provider) {
-            Provider.ANTHROPIC -> anthropicRequest(apiKey, encoded, defaultCurrency)
-            Provider.GEMINI -> geminiRequest(apiKey, encoded, defaultCurrency)
+            Provider.ANTHROPIC -> anthropicRequest(apiKey, encoded, defaultCurrency, hint)
+            Provider.GEMINI -> geminiRequest(apiKey, encoded, defaultCurrency, hint)
         }
 
         val body = http.newCall(request).execute().use { response ->
@@ -132,11 +134,16 @@ class PhotoExtractor(private val context: Context) {
                 "the phone first and pick it from there."
         )
 
-    private fun anthropicRequest(apiKey: String, image: String, currency: String): Request {
+    private fun anthropicRequest(
+        apiKey: String,
+        image: String,
+        currency: String,
+        hint: String?,
+    ): Request {
         val body = buildJsonObject {
             put("model", "claude-haiku-4-5")
             put("max_tokens", 2048)
-            put("system", prompt(currency))
+            put("system", prompt(currency, hint))
             put("messages", buildJsonArray {
                 add(buildJsonObject {
                     put("role", "user")
@@ -167,10 +174,17 @@ class PhotoExtractor(private val context: Context) {
             .build()
     }
 
-    private fun geminiRequest(apiKey: String, image: String, currency: String): Request {
+    private fun geminiRequest(
+        apiKey: String,
+        image: String,
+        currency: String,
+        hint: String?,
+    ): Request {
         val body = buildJsonObject {
             putJsonObject("system_instruction") {
-                put("parts", buildJsonArray { add(buildJsonObject { put("text", prompt(currency)) }) })
+                put("parts", buildJsonArray {
+                    add(buildJsonObject { put("text", prompt(currency, hint)) })
+                })
             }
             put("contents", buildJsonArray {
                 add(buildJsonObject {
@@ -267,7 +281,9 @@ class PhotoExtractor(private val context: Context) {
         }
 
         if (proposals.isEmpty()) {
-            throw Exception(
+            // A distinct type, because "that is a photo of a cat" is a perfectly
+            // good answer and should not be shown in the red of a failure.
+            throw NothingFound(
                 summary.ifBlank {
                     "Nothing that looks like a payment plan was found in that picture."
                 }
@@ -296,7 +312,7 @@ class PhotoExtractor(private val context: Context) {
         }
     }
 
-    private fun prompt(currency: String) = """
+    private fun prompt(currency: String, hint: String?) = """
         You read a photo or screenshot of a payment plan, loan, bill or
         subscription, and return what it commits the person to paying.
 
@@ -325,7 +341,16 @@ class PhotoExtractor(private val context: Context) {
         Only report what the picture actually shows. Leave a field out rather
         than guessing it, and return an empty commitments list if there is no
         payment plan in the image. Do not invent amounts or dates.
+        ${
+        hint?.takeIf { it.isNotBlank() }?.let {
+            "\n        The person sent this with the message: \"$it\". Take it into " +
+                "account, and answer it in the summary."
+        } ?: ""
+    }
     """.trimIndent()
+
+    /** Thrown when the picture was read fine and simply had no plan in it. */
+    class NothingFound(message: String) : Exception(message)
 
     private companion object {
         val JSON_MEDIA = "application/json".toMediaType()

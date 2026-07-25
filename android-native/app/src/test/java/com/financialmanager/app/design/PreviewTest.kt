@@ -4,12 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -20,13 +23,17 @@ import androidx.compose.ui.unit.dp
 import app.cash.paparazzi.DeviceConfig
 import app.cash.paparazzi.Paparazzi
 import com.financialmanager.app.money.Money
+import com.financialmanager.app.ui.BalanceHero
 import com.financialmanager.app.ui.CashFlowChart
-import com.financialmanager.app.ui.CategoryBadge
 import com.financialmanager.app.ui.CategoryDonut
-import com.financialmanager.app.ui.Eyebrow
+import com.financialmanager.app.ui.CategoryIcons
 import com.financialmanager.app.ui.FinancialManagerTheme
-import com.financialmanager.app.ui.HeroCard
+import com.financialmanager.app.ui.GroupLabel
+import com.financialmanager.app.ui.GroupRow
+import com.financialmanager.app.ui.Hairline
+import com.financialmanager.app.ui.InsetGroup
 import com.financialmanager.app.ui.MoneyMedium
+import com.financialmanager.app.ui.Pill
 import com.financialmanager.app.ui.ProgressBar
 import com.financialmanager.app.ui.SectionCard
 import com.financialmanager.app.ui.StatTile
@@ -80,7 +87,7 @@ class PreviewTest {
                         .background(MaterialTheme.colorScheme.background)
                         .padding(16.dp)
                 ) {
-                    HeroCard(
+                    BalanceHero(
                         label = "Short by",
                         amountMinor = 8_450,
                         currency = "EUR",
@@ -102,11 +109,10 @@ private fun Dashboard() {
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("July 2026", style = MaterialTheme.typography.headlineSmall)
+            Text("July", style = MaterialTheme.typography.headlineLarge)
 
-            HeroCard(
+            BalanceHero(
                 label = "Safe to spend",
                 amountMinor = 61_117,
                 currency = "EUR",
@@ -115,14 +121,48 @@ private fun Dashboard() {
                 short = false,
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            GroupLabel("Coming up", trailing = {
+                Text("€620.00", style = MoneyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            })
+            InsetGroup {
+                GroupRow(
+                    title = "Rent",
+                    icon = CategoryIcons.forCommitment("BILL"),
+                    trailing = {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("€500.00", style = MoneyMedium)
+                            Spacer(Modifier.height(3.dp))
+                            Pill("Tomorrow", negativeColour())
+                        }
+                    },
+                )
+                Hairline(62.dp)
+                GroupRow(
+                    title = "Klarna – Zara",
+                    icon = CategoryIcons.forCommitment("INSTALMENT"),
+                    trailing = {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("€120.00", style = MoneyMedium)
+                            Spacer(Modifier.height(3.dp))
+                            Pill("in 9 days", MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                )
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 StatTile(
-                    "In", 165_100, "EUR",
-                    Modifier.weight(1f), colour = positiveColour(), note = "34 payments",
+                    "In this month", 165_100, "EUR",
+                    Modifier.weight(1f).fillMaxHeight(),
+                    colour = positiveColour(), note = "412 payments in all",
                 )
                 StatTile(
-                    "Out", 112_358, "EUR",
-                    Modifier.weight(1f), colour = negativeColour(), note = "€36.24 a day",
+                    "Out this month", 112_358, "EUR",
+                    Modifier.weight(1f).fillMaxHeight(), note = "net +€527.42",
                 )
             }
 
@@ -136,19 +176,6 @@ private fun Dashboard() {
                         Triple("Bills", 9_000L, Color(0xFF26A69A)),
                     ),
                     currency = "EUR",
-                )
-            }
-
-            SectionCard("In and out") {
-                CashFlowChart(
-                    months = listOf(
-                        Triple("Feb", 150_000L, 132_000L),
-                        Triple("Mar", 148_000L, 121_000L),
-                        Triple("Apr", 151_000L, 165_000L),
-                        Triple("May", 149_000L, 118_000L),
-                        Triple("Jun", 152_000L, 129_000L),
-                        Triple("Jul", 165_100L, 112_358L),
-                    )
                 )
             }
 
@@ -175,12 +202,16 @@ private fun Dashboard() {
 @Composable
 private fun Transactions() {
     val rows = listOf(
-        Triple("Esselunga", "Groceries", -1_845L) to "🛒",
-        Triple("Il Caffè all'Università", "Restaurants & Cafés", -270L) to "🍽️",
-        Triple("Trenitalia", "Transport", -1_150L) to "🚆",
-        Triple("Payment from Employer", "Salary", 150_000L) to "💼",
-        Triple("iliad", "Bills & Utilities", -999L) to "💡",
-        Triple("Klarna - Zara", "Shopping", -2_499L) to "🛍️",
+        Triple("Esselunga", "Groceries", -1_845L),
+        Triple("Il Caffè all'Università", "Restaurants & Cafés", -270L),
+        Triple("Trenitalia", "Transport", -1_150L),
+        Triple("Payment from Employer", "Salary", 150_000L),
+        Triple("iliad", "Bills & Utilities", -999L),
+        Triple("Klarna - Zara", "Shopping", -2_499L),
+    )
+    val tints = listOf(
+        Color(0xFF4CAF50), Color(0xFFFF7043), Color(0xFF42A5F5),
+        Color(0xFF26A69A), Color(0xFFFFB020), Color(0xFFEC407A),
     )
 
     FinancialManagerTheme {
@@ -190,45 +221,50 @@ private fun Transactions() {
                 .background(MaterialTheme.colorScheme.background)
                 .padding(16.dp),
         ) {
-            Text("Activity", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(14.dp))
-            Text("TODAY", style = Eyebrow, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
+            Text("Activity", style = MaterialTheme.typography.headlineLarge)
+            GroupLabel("Today")
 
-            SectionCard {
-                rows.forEachIndexed { index, (row, icon) ->
-                    val (merchant, category, amount) = row
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        CategoryBadge(icon, MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(13.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(merchant, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+            InsetGroup {
+                rows.forEachIndexed { index, (merchant, category, amount) ->
+                    GroupRow(
+                        title = merchant,
+                        subtitle = category,
+                        icon = CategoryIcons[category],
+                        iconTint = tints[index],
+                        trailing = {
                             Text(
-                                category,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Money.format(amount, "EUR", signed = true),
+                                style = MoneyMedium,
+                                color = amountColour(amount),
                             )
-                        }
-                        Text(
-                            Money.format(amount, "EUR", signed = true),
-                            style = MoneyMedium,
-                            color = amountColour(amount),
-                        )
-                    }
-                    if (index < rows.lastIndex) {
-                        Spacer(
-                            Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant)
-                        )
-                    }
+                        },
+                    )
+                    if (index < rows.lastIndex) Hairline(62.dp)
                 }
+            }
+
+            GroupLabel("Yesterday")
+            InsetGroup {
+                GroupRow(
+                    title = "Amazon",
+                    subtitle = "Shopping",
+                    icon = Icons.Outlined.Home,
+                    trailing = { Text("-€31.20", style = MoneyMedium) },
+                )
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionCard("In and out") {
+                CashFlowChart(
+                    months = listOf(
+                        Triple("Feb", 150_000L, 132_000L),
+                        Triple("Mar", 148_000L, 121_000L),
+                        Triple("Apr", 151_000L, 165_000L),
+                        Triple("May", 149_000L, 118_000L),
+                        Triple("Jun", 152_000L, 129_000L),
+                        Triple("Jul", 165_100L, 112_358L),
+                    )
+                )
             }
         }
     }

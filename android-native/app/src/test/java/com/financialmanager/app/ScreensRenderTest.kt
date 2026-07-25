@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -57,8 +58,8 @@ class ScreensRenderTest {
             }
         }
         // Only the cards a lazy list has actually composed can be asserted on.
-        compose.onNodeWithText("SAFE TO SPEND").assertIsDisplayed()
-        compose.onNodeWithText("Cash on hand").assertIsDisplayed()
+        compose.onNodeWithText("Safe to spend").assertIsDisplayed()
+        compose.onNodeWithText("Cash in your pocket").assertIsDisplayed()
     }
 
     @Test
@@ -79,7 +80,7 @@ class ScreensRenderTest {
                 TransactionsScreen(model(), PaddingValues(0.dp()))
             }
         }
-        compose.onNodeWithText("Search transactions").assertIsDisplayed()
+        compose.onNodeWithText("Search").assertIsDisplayed()
     }
 
     @Test
@@ -109,3 +110,44 @@ class ScreensRenderTest {
 }
 
 private fun Int.dp() = androidx.compose.ui.unit.Dp(this.toFloat())
+
+/**
+ * Opens the actual activity.
+ *
+ * The screens above are composed one at a time, which says nothing about the
+ * thing that wraps them: the tab bar, the floating assistant button and the
+ * overlay it opens. Those are the parts a build cannot check and an emulator
+ * would — this is the nearest thing available, and it is enough to catch a
+ * composition that throws on launch.
+ */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
+class MainActivityTest {
+
+    @get:Rule
+    val compose = androidx.compose.ui.test.junit4.createAndroidComposeRule<MainActivity>()
+
+    @Test
+    fun `the app launches with its tabs and the assistant button`() {
+        compose.onNodeWithText("Home").assertIsDisplayed()
+        compose.onNodeWithText("Activity").assertIsDisplayed()
+        compose.onNodeWithText("Plan").assertIsDisplayed()
+        compose.onNodeWithText("Settings").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Ask the assistant").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the assistant opens from the floating button and closes again`() {
+        compose.onNodeWithContentDescription("Ask the assistant").performClick()
+        compose.onNodeWithText("Assistant").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription("Close").performClick()
+        compose.onNodeWithContentDescription("Ask the assistant").assertIsDisplayed()
+    }
+
+    @Test
+    fun `moving between tabs works`() {
+        compose.onNodeWithText("Plan").performClick()
+        compose.onNodeWithText("Safe to spend").assertIsDisplayed()
+    }
+}

@@ -2,189 +2,165 @@ package com.financialmanager.app.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The app's look.
+ * The app's look: quiet, grouped, mostly monochrome.
  *
- * A deliberate palette rather than the wallpaper-derived one. Material You is a
- * lovely default, but a money app is read at a glance and in a hurry, and the
- * two colours that matter most — money in, money out — cannot be left to
- * whatever someone's wallpaper happens to be. Green and coral are fixed; the
- * accent is a deep indigo that stays out of their way.
+ * The previous version leaned on gradients and colour to look designed, which is
+ * the opposite of what a money app needs. Almost everything here is grey; the
+ * only saturated things on screen are the amounts themselves and one accent.
+ * Restraint is the style.
  */
 
-/* --- money ---------------------------------------------------------- */
+/* --- amounts --------------------------------------------------------- */
 
-private val MintLight = Color(0xFF0E7C5A)
-private val MintDark = Color(0xFF4ADE9B)
-private val CoralLight = Color(0xFFC8452F)
-private val CoralDark = Color(0xFFFF7A66)
+private val GreenLight = Color(0xFF12894F)
+private val GreenDark = Color(0xFF32D583)
+private val RedLight = Color(0xFFC5333B)
+private val RedDark = Color(0xFFFF5A5F)
 
-/* --- surfaces ------------------------------------------------------- */
+/* --- greys ----------------------------------------------------------- */
 
-private val InkDark = Color(0xFF0A0C11)          // page
-private val SlateDark = Color(0xFF13171F)        // card
-private val SlateDarkRaised = Color(0xFF1B2029)  // input, chip
-private val IndigoDark = Color(0xFF8FA8FF)
-
-private val PaperLight = Color(0xFFF6F7FA)
+private val GroupedLight = Color(0xFFF2F2F7)   // page behind the cards
 private val CardLight = Color(0xFFFFFFFF)
-private val RaisedLight = Color(0xFFEDEFF5)
-private val IndigoLight = Color(0xFF3A55C7)
+private val FillLight = Color(0xFFE9E9EF)      // input, icon well
+private val SeparatorLight = Color(0xFFE3E3E8)
+private val LabelLight = Color(0xFF1C1C1E)
+private val SecondaryLight = Color(0xFF8A8A8E)
+private val TintLight = Color(0xFF1F6FEB)
 
-@Composable fun positiveColour(): Color = if (isSystemInDarkTheme()) MintDark else MintLight
+private val GroupedDark = Color(0xFF000000)
+private val CardDark = Color(0xFF1C1C1E)
+private val FillDark = Color(0xFF2C2C2E)
+private val SeparatorDark = Color(0xFF2F2F33)
+private val LabelDark = Color(0xFFF5F5F7)
+private val SecondaryDark = Color(0xFF98989E)
+private val TintDark = Color(0xFF5A9BFF)
 
-@Composable fun negativeColour(): Color = if (isSystemInDarkTheme()) CoralDark else CoralLight
+@Composable fun positiveColour(): Color = if (isSystemInDarkTheme()) GreenDark else GreenLight
 
-@Composable
-fun amountColour(minor: Long): Color = when {
-    minor > 0 -> positiveColour()
-    minor < 0 -> MaterialTheme.colorScheme.onSurface
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
+@Composable fun negativeColour(): Color = if (isSystemInDarkTheme()) RedDark else RedLight
 
 /**
- * The headline gradient.
+ * Spending is shown in the ordinary text colour, not red.
  *
- * Money out is not a failure state, so the everyday card is calm indigo; the
- * red is saved for actually being short, where it should be alarming because
- * the situation is.
+ * Nearly every row in a statement is money leaving. Colouring them all red
+ * makes the list shout and stops red meaning anything; it is kept for the one
+ * place it matters, which is being short. Income gets the green, because it is
+ * the rarer, more interesting event.
  */
 @Composable
-fun heroBrush(short: Boolean): Brush = if (short) {
-    Brush.linearGradient(
-        if (isSystemInDarkTheme()) listOf(Color(0xFF52161B), Color(0xFF7A2230))
-        else listOf(Color(0xFFFF8A75), Color(0xFFE05252))
-    )
-} else {
-    Brush.linearGradient(
-        if (isSystemInDarkTheme()) listOf(Color(0xFF1E2A5E), Color(0xFF2E1F5B))
-        else listOf(Color(0xFF4A63D8), Color(0xFF7B5BD6))
-    )
-}
-
-@Composable
-fun onHeroColour(): Color = Color.White
+fun amountColour(minor: Long): Color =
+    if (minor > 0) positiveColour() else MaterialTheme.colorScheme.onSurface
 
 private val DarkColours = darkColorScheme(
-    primary = IndigoDark,
-    onPrimary = Color(0xFF0A0C11),
-    primaryContainer = Color(0xFF25305A),
-    onPrimaryContainer = Color(0xFFDDE4FF),
-    secondary = MintDark,
-    tertiary = Color(0xFFFFC46B),
-    background = InkDark,
-    onBackground = Color(0xFFEDEFF5),
-    surface = SlateDark,
-    onSurface = Color(0xFFEDEFF5),
-    surfaceVariant = SlateDarkRaised,
-    onSurfaceVariant = Color(0xFF98A1B4),
-    outline = Color(0xFF2A303C),
-    outlineVariant = Color(0xFF1E232C),
-    error = CoralDark,
-    errorContainer = Color(0xFF3D1418),
-    onErrorContainer = Color(0xFFFFD9D2),
+    primary = TintDark,
+    onPrimary = Color.Black,
+    primaryContainer = Color(0xFF16233A),
+    onPrimaryContainer = Color(0xFFD6E4FF),
+    secondary = GreenDark,
+    tertiary = Color(0xFFFFB020),
+    background = GroupedDark,
+    onBackground = LabelDark,
+    surface = CardDark,
+    onSurface = LabelDark,
+    surfaceVariant = FillDark,
+    onSurfaceVariant = SecondaryDark,
+    outline = SeparatorDark,
+    outlineVariant = SeparatorDark,
+    error = RedDark,
+    errorContainer = Color(0xFF2A1215),
+    onErrorContainer = Color(0xFFFFD7D9),
 )
 
 private val LightColours = lightColorScheme(
-    primary = IndigoLight,
+    primary = TintLight,
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFDDE3FF),
-    onPrimaryContainer = Color(0xFF0A1745),
-    secondary = MintLight,
+    primaryContainer = Color(0xFFDCE8FF),
+    onPrimaryContainer = Color(0xFF001A44),
+    secondary = GreenLight,
     tertiary = Color(0xFF9A6100),
-    background = PaperLight,
-    onBackground = Color(0xFF11141B),
+    background = GroupedLight,
+    onBackground = LabelLight,
     surface = CardLight,
-    onSurface = Color(0xFF11141B),
-    surfaceVariant = RaisedLight,
-    onSurfaceVariant = Color(0xFF5B6272),
-    outline = Color(0xFFDCE0EA),
-    outlineVariant = Color(0xFFE9ECF3),
-    error = CoralLight,
-    errorContainer = Color(0xFFFFE1DB),
-    onErrorContainer = Color(0xFF44100A),
+    onSurface = LabelLight,
+    surfaceVariant = FillLight,
+    onSurfaceVariant = SecondaryLight,
+    outline = SeparatorLight,
+    outlineVariant = SeparatorLight,
+    error = RedLight,
+    errorContainer = Color(0xFFFFE2E2),
+    onErrorContainer = Color(0xFF410008),
 )
 
 /**
- * Numbers are set tighter and heavier than text.
- *
- * Money is the content here, so it gets its own styles rather than borrowing
- * the body ones — and always tabular figures, or a column of amounts wanders
- * as the digits change width.
+ * Numbers get their own styles: tighter, heavier, and always tabular figures,
+ * or a column of amounts wanders as the digits change width.
  */
-private val Numeric = androidx.compose.ui.text.font.FontFamily.Default
-
 val MoneyHero = TextStyle(
-    fontFamily = Numeric,
-    fontSize = 40.sp,
-    lineHeight = 44.sp,
+    fontSize = 46.sp,
+    lineHeight = 50.sp,
     fontWeight = FontWeight.Bold,
-    letterSpacing = (-1.4).sp,
+    letterSpacing = (-1.8).sp,
     fontFeatureSettings = "tnum",
 )
 
 val MoneyLarge = TextStyle(
-    fontFamily = Numeric,
-    fontSize = 24.sp,
-    lineHeight = 28.sp,
-    fontWeight = FontWeight.Bold,
-    letterSpacing = (-0.6).sp,
+    fontSize = 22.sp,
+    lineHeight = 26.sp,
+    fontWeight = FontWeight.SemiBold,
+    letterSpacing = (-0.5).sp,
     fontFeatureSettings = "tnum",
 )
 
 val MoneyMedium = TextStyle(
-    fontFamily = Numeric,
-    fontSize = 15.sp,
+    fontSize = 16.sp,
     lineHeight = 20.sp,
-    fontWeight = FontWeight.SemiBold,
+    fontWeight = FontWeight.Medium,
     letterSpacing = (-0.2).sp,
     fontFeatureSettings = "tnum",
 )
 
-/** Small all-caps labels above figures. */
-val Eyebrow = TextStyle(
-    fontSize = 11.sp,
-    lineHeight = 14.sp,
+/** Small grey headings above a group. */
+val GroupHeader = TextStyle(
+    fontSize = 13.sp,
+    lineHeight = 16.sp,
     fontWeight = FontWeight.Medium,
-    letterSpacing = 1.1.sp,
+    letterSpacing = 0.sp,
 )
 
 private val AppTypography = Typography().run {
-    val trim = LineHeightStyle(
-        alignment = LineHeightStyle.Alignment.Center,
-        trim = LineHeightStyle.Trim.None,
-    )
     copy(
-        headlineSmall = headlineSmall.copy(
-            fontWeight = FontWeight.Bold, letterSpacing = (-0.5).sp, lineHeightStyle = trim,
+        // The big screen title, set once at the top and left alone.
+        headlineLarge = headlineLarge.copy(
+            fontSize = 34.sp, lineHeight = 40.sp,
+            fontWeight = FontWeight.Bold, letterSpacing = (-1).sp,
         ),
-        titleLarge = titleLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
-        titleMedium = titleMedium.copy(fontWeight = FontWeight.SemiBold),
-        titleSmall = titleSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.sp),
-        bodyLarge = bodyLarge.copy(lineHeightStyle = trim),
-        bodyMedium = bodyMedium.copy(lineHeightStyle = trim),
-        bodySmall = bodySmall.copy(lineHeight = 18.sp, lineHeightStyle = trim),
-        labelMedium = labelMedium.copy(letterSpacing = 0.8.sp),
+        titleLarge = titleLarge.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.4).sp),
+        titleMedium = titleMedium.copy(
+            fontSize = 17.sp, fontWeight = FontWeight.SemiBold, letterSpacing = (-0.2).sp,
+        ),
+        titleSmall = titleSmall.copy(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+        bodyLarge = bodyLarge.copy(fontSize = 17.sp, lineHeight = 22.sp, letterSpacing = (-0.2).sp),
+        bodyMedium = bodyMedium.copy(fontSize = 15.sp, lineHeight = 20.sp),
+        bodySmall = bodySmall.copy(fontSize = 13.sp, lineHeight = 18.sp),
+        labelMedium = labelMedium.copy(fontSize = 13.sp, letterSpacing = 0.sp),
     )
 }
 
-/** One radius scale, so nothing looks borrowed from another app. */
 object Shape {
-    val card = 22.dp
-    val hero = 28.dp
-    val control = 14.dp
+    val card = 16.dp
+    val control = 12.dp
     val pill = 999.dp
 }
 
@@ -194,11 +170,10 @@ fun FinancialManagerTheme(content: @Composable () -> Unit) {
         colorScheme = if (isSystemInDarkTheme()) DarkColours else LightColours,
         typography = AppTypography,
     ) {
-        // Wrapped in a Surface so text always inherits a content colour that
-        // suits the background. Without it, anything not inside a Surface of its
-        // own falls back to black — which is invisible in dark mode, and the
-        // sort of thing only looking at a render catches.
-        androidx.compose.material3.Surface(
+        // A Surface at the root so text always inherits a content colour that
+        // suits the background; without it, anything outside a Surface falls
+        // back to black and disappears in dark mode.
+        Surface(
             color = MaterialTheme.colorScheme.background,
             contentColor = MaterialTheme.colorScheme.onBackground,
             content = content,

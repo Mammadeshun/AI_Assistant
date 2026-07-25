@@ -5,6 +5,7 @@ import com.financialmanager.app.data.CategoryTotal
 import com.financialmanager.app.data.Commitment
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.ChronoUnit
 
 /**
  * What is left of the month once the promises are taken out.
@@ -110,6 +111,30 @@ object Planner {
     }
 
     /**
+     * What is about to be taken, soonest first.
+     *
+     * The most useful thing the app knows and the hardest to keep in your head:
+     * not what you have spent, but what is already on its way out. A payment due
+     * in three days is the reason a balance that looks fine is not.
+     *
+     * A commitment with no day recorded is left out rather than guessed at a
+     * date — a wrong date here would be worse than a missing row.
+     */
+    fun upcoming(
+        commitments: List<Commitment>,
+        withinDays: Long = 45,
+        today: LocalDate = LocalDate.now(),
+    ): List<Upcoming> =
+        commitments
+            .filter { it.active && it.dayOfMonth != null }
+            .mapNotNull { commitment ->
+                val due = commitment.nextDue(today) ?: return@mapNotNull null
+                val away = ChronoUnit.DAYS.between(today, due)
+                if (away > withinDays) null else Upcoming(commitment, due, away.toInt())
+            }
+            .sortedBy { it.due }
+
+    /**
      * When the debts and instalment plans finish, soonest first.
      *
      * Seeing "three more payments" against a number you have been paying for a
@@ -196,6 +221,26 @@ object Planner {
 
         return notes
     }
+}
+
+/** A payment that has not happened yet, and how long there is until it does. */
+data class Upcoming(
+    val commitment: Commitment,
+    val due: LocalDate,
+    val daysAway: Int,
+) {
+    /** "Today", "Tomorrow", "in 5 days" — how anyone would actually say it. */
+    val whenText: String
+        get() = when (daysAway) {
+            0 -> "Today"
+            1 -> "Tomorrow"
+            in 2..13 -> "in $daysAway days"
+            else -> "${due.dayOfMonth} ${due.month.getDisplayName(
+                java.time.format.TextStyle.SHORT, java.util.Locale.getDefault(),
+            )}"
+        }
+
+    val isImminent: Boolean get() = daysAway <= 3
 }
 
 enum class Severity { ALERT, WARNING, INFO, GOOD }

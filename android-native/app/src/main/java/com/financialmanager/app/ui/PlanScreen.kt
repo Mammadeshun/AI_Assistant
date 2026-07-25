@@ -1,9 +1,7 @@
 package com.financialmanager.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,26 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.AssistChip
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -39,16 +23,13 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.financialmanager.app.data.Commitment
@@ -64,6 +45,11 @@ import java.util.Locale
  *
  * This is the part a statement cannot tell you. A loan taken out last year is
  * invisible until it takes the money, so it has to be written down.
+ *
+ * The screen used to carry seven cards, including a second copy of the home
+ * screen's headline. It is now four groups, in the order the questions actually
+ * get asked: what is left, what I hold, what I owe every month, what I have
+ * capped.
  */
 @Composable
 fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
@@ -71,20 +57,12 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
     val commitments by model.commitments.collectAsStateWithLifecycle()
     val suggestions by model.suggestions.collectAsStateWithLifecycle()
     val budgets by model.budgetProgress.collectAsStateWithLifecycle()
-
     val cash by model.cash.collectAsStateWithLifecycle()
-    val extraction by model.extraction.collectAsStateWithLifecycle()
 
     var editing by remember { mutableStateOf<Commitment?>(null) }
     var adding by remember { mutableStateOf(false) }
     var budgetFor by remember { mutableStateOf<String?>(null) }
     var editingCash by remember { mutableStateOf(false) }
-
-    // The system photo picker: no storage permission, and it only ever hands
-    // over the one image the user chose.
-    val photoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> uri?.let(model::readPhoto) }
 
     LaunchedEffect(Unit) { model.findSuggestions() }
 
@@ -93,189 +71,120 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp,
             top = padding.calculateTopPadding() + 8.dp,
-            bottom = padding.calculateBottomPadding() + 24.dp,
+            bottom = padding.calculateBottomPadding() + 96.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { SafeToSpendCard(plan) }
+        item { PlanTitle() }
 
         item {
-            SectionCard(
-                "Cash on hand",
-                trailing = {
-                    TextButton(onClick = { editingCash = true }) {
-                        Text(if (cash > 0) "Update" else "Add")
-                    }
-                },
-            ) {
-                if (cash > 0) {
-                    Text(Money.format(cash, plan.currency), style = MoneyLarge)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Counted in everything above.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        "Notes and coins in your pocket never appear in a statement, so the " +
-                            "app is short by however much you carry until you say.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+            InsetGroup {
+                MoneyRow(
+                    label = if (plan.isOverstretched) "Short by" else "Safe to spend",
+                    amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
+                    currency = plan.currency,
+                    colour = if (plan.isOverstretched) negativeColour()
+                    else MaterialTheme.colorScheme.onSurface,
+                    strong = true,
+                )
+                Hairline()
+                MoneyRow("Committed every month", plan.committedMinor, plan.currency)
+                Hairline()
+                MoneyRow("Still to leave this month", plan.stillToLeaveMinor, plan.currency)
+                if (plan.totalOwedMinor > 0) {
+                    Hairline()
+                    MoneyRow(
+                        "Still owed in total", plan.totalOwedMinor, plan.currency,
+                        colour = negativeColour(),
                     )
                 }
             }
         }
 
         item {
-            SectionCard("Read a plan from a photo") {
-                Text(
-                    "Point it at a Klarna, Scalapay or loan screen and it fills in the " +
-                        "amounts and dates for you. You confirm each one before anything " +
-                        "is saved.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                if (extraction is com.financialmanager.app.ui.ExtractionState.Working) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Reading the picture…", style = MaterialTheme.typography.bodyMedium)
-                    }
-                } else {
-                    Button(onClick = {
-                        photoPicker.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+            GroupLabel("What you hold")
+            InsetGroup {
+                MoneyRow("In the account", plan.balanceMinor - cash, plan.currency)
+                Hairline()
+                GroupRow(
+                    title = "Cash in your pocket",
+                    subtitle = if (cash > 0) "Counted in everything above"
+                    else "No statement knows about this — say and it counts",
+                    onClick = { editingCash = true },
+                    chevron = true,
+                    trailing = {
+                        Text(
+                            if (cash > 0) Money.format(cash, plan.currency) else "Add",
+                            style = MoneyMedium,
+                            color = if (cash > 0) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.primary,
                         )
-                    }) { Text("Choose a photo") }
-                }
-                (extraction as? com.financialmanager.app.ui.ExtractionState.Failed)?.let {
-                    Spacer(Modifier.height(10.dp))
+                    },
+                )
+            }
+        }
+
+        item {
+            GroupLabel("Every month", trailing = {
+                TextButton(onClick = { adding = true }) { Text("Add") }
+            })
+            if (commitments.isEmpty()) {
+                InsetGroup {
                     Text(
-                        it.message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        "Nothing recorded yet. Add a debt, a loan, an instalment plan, rent " +
+                            "or a subscription and the figure above starts telling the truth.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
+                }
+            } else {
+                InsetGroup {
+                    commitments.forEachIndexed { index, commitment ->
+                        CommitmentRow(
+                            commitment = commitment,
+                            onClick = { editing = commitment },
+                            onToggle = { model.setCommitmentActive(commitment, it) },
+                        )
+                        if (index < commitments.lastIndex) Hairline(62.dp)
+                    }
                 }
             }
         }
 
         if (suggestions.isNotEmpty()) {
             item {
-                SectionCard("Regular payments found") {
-                    Text(
-                        "These repeat like clockwork in your history. Adding one lets the " +
-                            "plan above account for it before it leaves.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    suggestions.take(6).forEach { suggestion ->
+                GroupLabel("Looks regular in your history")
+                InsetGroup {
+                    val shown = suggestions.take(3)
+                    shown.forEachIndexed { index, suggestion ->
                         SuggestionRow(
                             suggestion = suggestion,
                             onAdd = { model.acceptSuggestion(suggestion, it) },
                             onDismiss = { model.dismissSuggestion(suggestion) },
                         )
+                        if (index < shown.lastIndex) Hairline()
                     }
                 }
             }
         }
 
         item {
-            SectionCard(
-                "Monthly commitments",
-                trailing = { TextButton(onClick = { adding = true }) { Text("Add") } },
-            ) {
-                if (commitments.isEmpty()) {
-                    Text(
-                        "Nothing recorded yet. Add a debt, a loan, an instalment plan, rent " +
-                            "or a subscription and the figure above starts telling the truth.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    commitments.forEach { commitment ->
-                        CommitmentRow(
-                            commitment = commitment,
-                            onClick = { editing = commitment },
-                            onToggle = { model.setCommitmentActive(commitment, it) },
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Every month", style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            Money.format(plan.committedMinor, plan.currency),
-                            style = MoneyMedium,
-                        )
-                    }
-                    if (plan.totalOwedMinor > 0) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Text(
-                                "Still owed in total",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Text(
-                                Money.format(plan.totalOwedMinor, plan.currency),
-                                style = MoneyMedium,
-                                color = negativeColour(),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        val payoffs = commitments.filter { it.active && it.remainingMinor != null }
-        if (payoffs.isNotEmpty()) {
-            item {
-                SectionCard("When these finish") {
-                    payoffs.sortedBy { it.monthsRemaining ?: Int.MAX_VALUE }.forEach { debt ->
-                        val date = debt.payoffDate()
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(debt.name, style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "${debt.monthsRemaining} payments left",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            if (date != null) {
-                                Text(
-                                    "${date.month.getDisplayName(DateTextStyle.SHORT, Locale.getDefault())} ${date.year}",
-                                    style = MoneyMedium,
-                                    color = positiveColour(),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            SectionCard(
-                "Budgets",
-                trailing = { TextButton(onClick = { budgetFor = "" }) { Text("Set") } },
-            ) {
+            GroupLabel("Budgets", trailing = {
+                TextButton(onClick = { budgetFor = "" }) { Text("Set") }
+            })
+            InsetGroup {
                 if (budgets.isEmpty()) {
                     Text(
-                        "Set a monthly limit on a category and this warns you when you're " +
-                            "running ahead of the calendar, not just when it's gone.",
-                        style = MaterialTheme.typography.bodySmall,
+                        "Cap a category and this warns you when you're running ahead of the " +
+                            "calendar, not just when it's gone.",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(16.dp),
                     )
                 } else {
-                    budgets.forEach { budget ->
+                    budgets.forEachIndexed { index, budget ->
                         BudgetRow(budget) { budgetFor = budget.category }
+                        if (index < budgets.lastIndex) Hairline()
                     }
                 }
             }
@@ -309,14 +218,6 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
         )
     }
 
-    (extraction as? com.financialmanager.app.ui.ExtractionState.Ready)?.let { ready ->
-        ExtractionReview(
-            extraction = ready.extraction,
-            onDismiss = model::dismissExtraction,
-            onAccept = model::acceptProposals,
-        )
-    }
-
     budgetFor?.let { category ->
         BudgetEditor(
             category = category,
@@ -332,23 +233,39 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
 }
 
 @Composable
-private fun SafeToSpendCard(plan: com.financialmanager.app.plan.MonthPlan) {
-    val today = java.time.LocalDate.now()
-    HeroCard(
-        label = if (plan.isOverstretched) "Short by" else "Safe to spend",
-        amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
-        currency = plan.currency,
-        caption = if (plan.isOverstretched) {
-            "Once this month's remaining payments leave, you're short. " +
-                "${plan.daysLeft} days to go."
-        } else {
-            "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for the " +
-                "${plan.daysLeft} days left, after the " +
-                "${Money.format(plan.stillToLeaveMinor, plan.currency)} still due to leave."
-        },
-        monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth(),
-        short = plan.isOverstretched,
-    )
+private fun PlanTitle() {
+    Column(Modifier.padding(top = 4.dp, bottom = 6.dp)) {
+        Text("Plan", style = MaterialTheme.typography.headlineLarge)
+    }
+}
+
+/** A label on the left and a figure on the right: the whole of a summary group. */
+@Composable
+private fun MoneyRow(
+    label: String,
+    amountMinor: Long,
+    currency: String,
+    colour: Color? = null,
+    strong: Boolean = false,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = if (strong) 14.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        AnimatedMoney(
+            amountMinor = amountMinor,
+            currency = currency,
+            style = if (strong) MoneyLarge else MoneyMedium,
+            colour = colour ?: MaterialTheme.colorScheme.onSurface,
+        )
+    }
 }
 
 @Composable
@@ -359,27 +276,18 @@ private fun SuggestionRow(
 ) {
     var choosing by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    suggestion.merchant,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${Money.format(suggestion.typicalAmountMinor, suggestion.currency)} " +
-                        "every ${suggestion.averageGapDays} days · " +
-                        "${Money.format(suggestion.yearlyMinor, suggestion.currency)} a year",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    GroupRow(
+        title = suggestion.merchant,
+        subtitle = "${Money.format(suggestion.typicalAmountMinor, suggestion.currency)} " +
+            "every ${suggestion.averageGapDays} days · " +
+            "${Money.format(suggestion.yearlyMinor, suggestion.currency)} a year",
+        trailing = {
             TextButton(onClick = { choosing = true }) { Text("Add") }
-            TextButton(onClick = onDismiss) { Text("No") }
-        }
-    }
+            TextButton(onClick = onDismiss) {
+                Text("No", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+    )
 
     if (choosing) {
         AlertDialog(
@@ -392,10 +300,13 @@ private fun SuggestionRow(
                             Modifier
                                 .fillMaxWidth()
                                 .clickable { choosing = false; onAdd(kind) }
-                                .padding(vertical = 12.dp),
+                                .padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(kind.icon)
+                            CategoryBadge(
+                                CategoryIcons.forCommitment(kind.name),
+                                MaterialTheme.colorScheme.primary,
+                            )
                             Spacer(Modifier.width(12.dp))
                             Text(kind.label, style = MaterialTheme.typography.bodyLarge)
                         }
@@ -414,52 +325,32 @@ private fun CommitmentRow(
     onClick: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) { Text(commitment.kind.icon) }
-
-        Spacer(Modifier.width(12.dp))
-
-        Column(Modifier.weight(1f)) {
-            Text(
-                commitment.name,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                buildString {
-                    append(commitment.kind.label)
-                    commitment.dayOfMonth?.let { append(" · on the ${ordinal(it)}") }
-                    commitment.monthsRemaining?.let { append(" · $it left") }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Text(
-            Money.format(commitment.amountMinor, commitment.currency),
-            style = MoneyMedium,
-            color = if (commitment.active) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.width(8.dp))
-        Switch(checked = commitment.active, onCheckedChange = onToggle)
+    val finishes = commitment.payoffDate()?.let {
+        "finishes ${it.month.getDisplayName(DateTextStyle.SHORT, Locale.getDefault())} ${it.year}"
     }
+
+    GroupRow(
+        title = commitment.name,
+        subtitle = buildString {
+            append(commitment.kind.label)
+            commitment.dayOfMonth?.let { append(" · on the ${ordinal(it)}") }
+            finishes?.let { append(" · $it") }
+        },
+        icon = CategoryIcons.forCommitment(commitment.kind.name),
+        iconTint = if (commitment.active) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outline,
+        onClick = onClick,
+        trailing = {
+            Text(
+                Money.format(commitment.amountMinor, commitment.currency),
+                style = MoneyMedium,
+                color = if (commitment.active) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+            Switch(checked = commitment.active, onCheckedChange = onToggle)
+        },
+    )
 }
 
 @Composable
@@ -474,21 +365,27 @@ private fun BudgetRow(budget: BudgetProgress, onClick: () -> Unit) {
         Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(budget.category, style = MaterialTheme.typography.bodyMedium)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            CategoryBadge(CategoryIcons[budget.category], colour)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                budget.category,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+            )
             Text(
                 "${Money.format(budget.spentMinor, budget.currency)} of " +
                     Money.format(budget.limitMinor, budget.currency),
-                style = MaterialTheme.typography.bodySmall,
+                style = MoneyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(10.dp))
         ProgressBar(fraction = budget.fraction, colour = colour)
         if (budget.isOver || budget.isAheadOfPace()) {
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 if (budget.isOver) {
                     "Over by ${Money.format(-budget.remainingMinor, budget.currency)}"
@@ -512,7 +409,9 @@ private fun CommitmentEditor(
 ) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var kind by remember { mutableStateOf(existing?.kind ?: CommitmentKind.SUBSCRIPTION) }
-    var amount by remember { mutableStateOf(existing?.let { decimalOf(it.amountMinor, currency) } ?: "") }
+    var amount by remember {
+        mutableStateOf(existing?.let { decimalOf(it.amountMinor, currency) } ?: "")
+    }
     var day by remember { mutableStateOf(existing?.dayOfMonth?.toString() ?: "") }
     var owed by remember {
         mutableStateOf(existing?.remainingMinor?.let { decimalOf(it, currency) } ?: "")
@@ -564,10 +463,16 @@ private fun CommitmentEditor(
                 OutlinedTextField(
                     value = day,
                     onValueChange = { day = it.filter(Char::isDigit).take(2) },
-                    label = { Text("Day of the month (optional)") },
+                    label = { Text("Day of the month") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "With a day, it shows up under Coming up before it leaves.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (owesTotal) {
                     Spacer(Modifier.height(8.dp))
@@ -646,10 +551,10 @@ private fun BudgetEditor(
                             Modifier
                                 .fillMaxWidth()
                                 .clickable { chosen = option.name }
-                                .padding(vertical = 10.dp),
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(option.icon)
+                            CategoryBadge(CategoryIcons[option.name], Color(option.colour))
                             Spacer(Modifier.width(10.dp))
                             Text(
                                 option.name,
@@ -761,96 +666,6 @@ fun CashEditor(
                 enabled = amount.isBlank() || parseMoney(amount, currency) != null,
                 onClick = { onSave(parseMoney(amount, currency) ?: 0L) },
             ) { Text("Save") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/**
- * Shows what was read out of a picture and lets the user accept it line by line.
- *
- * The confirmation step is the point. A screenshot can be misread, and a wrong
- * instalment plan added silently would be worse than not having the feature —
- * so nothing reaches the user's finances until they have ticked it here.
- */
-@Composable
-fun ExtractionReview(
-    extraction: com.financialmanager.app.ai.Extraction,
-    onDismiss: () -> Unit,
-    onAccept: (List<com.financialmanager.app.ai.ProposedCommitment>) -> Unit,
-) {
-    val chosen = remember {
-        mutableStateListOf<Boolean>().apply { repeat(extraction.proposals.size) { add(true) } }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Found in that picture") },
-        text = {
-            Column {
-                if (extraction.summary.isNotBlank()) {
-                    Text(
-                        extraction.summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                }
-
-                LazyColumn(Modifier.heightIn(max = 320.dp)) {
-                    items(extraction.proposals.size) { index ->
-                        val proposal = extraction.proposals[index]
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { chosen[index] = !chosen[index] }
-                                .padding(vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Checkbox(
-                                checked = chosen[index],
-                                onCheckedChange = { chosen[index] = it },
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(proposal.name, style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    buildString {
-                                        append(proposal.kind.label)
-                                        proposal.dayOfMonth?.let { append(" · on the ${ordinal(it)}") }
-                                        proposal.instalmentsLeft?.let { append(" · $it left") }
-                                        proposal.remainingMinor?.let {
-                                            append(" · ${Money.format(it, proposal.currency)} owed")
-                                        }
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Text(
-                                Money.format(proposal.monthlyAmountMinor, proposal.currency),
-                                style = MoneyMedium,
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Check these against the picture before saving — anything read from an " +
-                        "image can be wrong, and you can edit each one afterwards.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = chosen.any { it },
-                onClick = {
-                    onAccept(extraction.proposals.filterIndexed { index, _ -> chosen[index] })
-                },
-            ) { Text("Add ${chosen.count { it }}") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )

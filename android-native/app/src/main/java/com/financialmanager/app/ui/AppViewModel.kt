@@ -7,9 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.financialmanager.app.ai.Assistant
 import com.financialmanager.app.ai.ChatMessage
 import com.financialmanager.app.ai.Actions
-import com.financialmanager.app.ai.Extraction
 import com.financialmanager.app.ai.PhotoExtractor
-import com.financialmanager.app.ai.ProposedCommitment
 import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.ai.Secrets
 import com.financialmanager.app.categorise.Categoriser
@@ -30,6 +28,7 @@ import com.financialmanager.app.plan.BudgetProgress
 import com.financialmanager.app.plan.MonthPlan
 import com.financialmanager.app.plan.Observation
 import com.financialmanager.app.plan.Planner
+import com.financialmanager.app.plan.Upcoming
 import com.financialmanager.app.statement.ImportResult
 import com.financialmanager.app.statement.StatementImporter
 import com.financialmanager.app.widget.SafeToSpendWidget
@@ -61,14 +60,6 @@ data class Dashboard(
 }
 
 /** What the import sheet is doing right now. */
-/** Where the photo-reading flow has got to. */
-sealed interface ExtractionState {
-    data object Idle : ExtractionState
-    data object Working : ExtractionState
-    data class Ready(val extraction: Extraction) : ExtractionState
-    data class Failed(val message: String) : ExtractionState
-}
-
 sealed interface ImportState {
     data object Idle : ImportState
     data object Working : ImportState
@@ -176,6 +167,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val budgets: StateFlow<List<Budget>> = budgetDao.all()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * What is about to be taken, soonest first.
+     *
+     * The one thing a statement genuinely cannot tell you, and the thing worth
+     * putting near the top of the home screen: money already on its way out.
+     */
+    val upcoming: StateFlow<List<Upcoming>> = commitments
+        .map { Planner.upcoming(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -406,54 +407,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /* --- reading a photo --------------------------------------------- */
-
-    private val _extraction = MutableStateFlow<ExtractionState>(ExtractionState.Idle)
-    val extraction: StateFlow<ExtractionState> = _extraction.asStateFlow()
-
-    fun readPhoto(uri: android.net.Uri) {
-        val key = secrets.apiKey() ?: run {
-            _extraction.value = ExtractionState.Failed(
-                "Add an API key in Settings first — reading a picture needs one."
-            )
-            return
-        }
-        viewModelScope.launch {
-            _extraction.value = ExtractionState.Working
-            _extraction.value = try {
-                ExtractionState.Ready(
-                    photos.extract(key, secrets.provider(), uri, _currency.value)
-                )
-            } catch (error: Throwable) {
-                ExtractionState.Failed(error.message ?: "That picture could not be read.")
-            }
-        }
-    }
-
-    /** Saves only the lines the user ticked. Nothing is written before that. */
-    fun acceptProposals(proposals: List<ProposedCommitment>) {
-        viewModelScope.launch {
-            proposals.forEach { proposal ->
-                commitmentDao.insert(
-                    Commitment(
-                        name = proposal.name,
-                        kind = proposal.kind,
-                        amountMinor = proposal.monthlyAmountMinor,
-                        currency = proposal.currency,
-                        dayOfMonth = proposal.dayOfMonth,
-                        remainingMinor = proposal.remainingMinor
-                            ?: proposal.instalmentsLeft?.let { it * proposal.monthlyAmountMinor },
-                        note = proposal.note,
-                    )
-                )
-            }
-            _extraction.value = ExtractionState.Idle
-            SafeToSpendWidget.refresh(getApplication())
-        }
-    }
-
-    fun dismissExtraction() { _extraction.value = ExtractionState.Idle }
-
     /* --- budgets ----------------------------------------------------- */
 
     fun setBudget(category: String, limitMinor: Long) {
@@ -498,6 +451,54 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                     isError = true,
                 )
             }
+            _chat.value = _chat.value + reply
+            _chatBusy.value = false
+            if (reply.changed) SafeToSpendWidget.refresh(getApplication())
+        }
+    }
+
+    /**
+     * A picture sent to the assistant, with whatever was typed alongside it.
+     *
+     * What it finds is saved immediately rather than shown as a list to tick
+     * through — the same rule as everything else the assistant does, and each
+     * line lands in "Just changed" on the home screen with an Undo next to it.
+     */
+    fun askWithPhoto(note: String, uri: Uri) {
+        val key = secrets.apiKey() ?: return
+        viewModelScope.launch {
+            _chat.value = _chat.value + ChatMessage(
+                role = "user",
+                text = if (note.isBlank()) "(photo)" else "$note  (photo)",
+            )
+            _chatBusy.value = true
+
+            val reply = try {
+                val extraction = photos.extract(
+                    key, secrets.provider(), uri, _currency.value, note.takeIf { it.isNotBlank() },
+                )
+                val added = actions.addProposed(extraction.proposals)
+                ChatMessage(
+                    role = "assistant",
+                    text = buildString {
+                        if (extraction.summary.isNotBlank()) {
+                            appendLine(extraction.summary)
+                            appendLine()
+                        }
+                        append(added.joinToString("\n") { "• $it" })
+                    }.trim(),
+                    changed = added.isNotEmpty(),
+                )
+            } catch (error: Throwable) {
+                ChatMessage(
+                    role = "assistant",
+                    text = error.message ?: "That picture could not be read.",
+                    // "There is no payment plan in this" is an answer, not a
+                    // fault, so it is not shown as one.
+                    isError = error !is PhotoExtractor.NothingFound,
+                )
+            }
+
             _chat.value = _chat.value + reply
             _chatBusy.value = false
             if (reply.changed) SafeToSpendWidget.refresh(getApplication())

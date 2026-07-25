@@ -1,13 +1,18 @@
 package com.financialmanager.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -16,20 +21,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +41,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,11 +49,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -58,6 +62,7 @@ import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.categorise.Categoriser
 import com.financialmanager.app.data.TransactionRow
 import com.financialmanager.app.money.Money
+import com.financialmanager.app.plan.Upcoming
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle as DateTextStyle
@@ -66,8 +71,23 @@ import java.util.Locale
 private val CATEGORY_COLOURS: Map<String, Color> =
     Categoriser.DEFAULTS.associate { it.name to Color(it.colour) }
 
-private val CATEGORY_ICONS: Map<String, String> =
-    Categoriser.DEFAULTS.associate { it.name to it.icon }
+@Composable
+private fun categoryTint(category: String): Color =
+    CATEGORY_COLOURS[category] ?: MaterialTheme.colorScheme.primary
+
+/** The large title every screen opens with, in the platform's usual manner. */
+@Composable
+private fun ScreenTitle(text: String, trailing: @Composable (() -> Unit)? = null) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, style = MaterialTheme.typography.headlineLarge, modifier = Modifier.weight(1f))
+        trailing?.invoke()
+    }
+}
 
 /* ------------------------------------------------------------------ */
 /* Dashboard                                                           */
@@ -84,6 +104,7 @@ fun DashboardScreen(
     val count by model.transactionCount.collectAsStateWithLifecycle()
     val plan by model.plan.collectAsStateWithLifecycle()
     val commitments by model.commitments.collectAsStateWithLifecycle()
+    val upcoming by model.upcoming.collectAsStateWithLifecycle()
     val observations by model.observations.collectAsStateWithLifecycle()
     val importError by model.lastImportError.collectAsStateWithLifecycle()
     val recentChanges by model.recentChanges.collectAsStateWithLifecycle()
@@ -112,17 +133,71 @@ fun DashboardScreen(
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp,
             top = padding.calculateTopPadding() + 8.dp,
-            bottom = padding.calculateBottomPadding() + 24.dp,
+            bottom = padding.calculateBottomPadding() + 96.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { MonthPicker(month) { model.stepMonth(it) } }
+        item {
+            ScreenTitle(
+                month.month.getDisplayName(DateTextStyle.FULL, Locale.getDefault()),
+            ) {
+                MonthStepper(month) { model.stepMonth(it) }
+            }
+        }
 
         // The headline is what is left after what is promised, not the balance.
         item { SafeToSpendHeadline(plan, onOpenPlan) }
 
+        // What is about to leave. Above everything else on purpose: it is the
+        // part of the month you cannot see coming in a list of what you spent.
+        if (upcoming.isNotEmpty()) {
+            item {
+                GroupLabel("Coming up", trailing = {
+                    Text(
+                        Money.format(upcoming.sumOf { it.commitment.amountMinor }, plan.currency),
+                        style = MoneyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                })
+                InsetGroup {
+                    upcoming.take(4).forEachIndexed { index, due ->
+                        UpcomingRow(due, onOpenPlan)
+                        if (index < upcoming.take(4).lastIndex) Hairline(62.dp)
+                    }
+                }
+            }
+        }
+
         if (commitments.isEmpty()) {
             item { RecordDebtsPrompt(onOpenPlan) }
+        }
+
+        item {
+            Spacer(Modifier.height(14.dp))
+            // Intrinsic height so the two cards match whatever their notes say;
+            // side-by-side cards of different heights is the tell of a layout
+            // nobody looked at.
+            Row(
+                Modifier.height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                StatTile(
+                    label = "In this month",
+                    amountMinor = dashboard.incomeMinor,
+                    currency = dashboard.currency,
+                    colour = positiveColour(),
+                    note = "$count payments in all",
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                StatTile(
+                    label = "Out this month",
+                    amountMinor = dashboard.spendMinor,
+                    currency = dashboard.currency,
+                    note = "net " + Money.format(
+                        dashboard.netMinor, dashboard.currency, signed = true,
+                    ),
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+            }
         }
 
         // What the assistant changed, on the main screen rather than buried in
@@ -130,19 +205,16 @@ fun DashboardScreen(
         // tapping, and as easy to put back.
         if (recentChanges.isNotEmpty()) {
             item {
-                SectionCard("Recent changes") {
-                    recentChanges.forEach { change ->
-                        Row(
-                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                change.summary,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { model.undoChange(change) }) { Text("Undo") }
-                        }
+                GroupLabel("Just changed")
+                InsetGroup {
+                    recentChanges.forEachIndexed { index, change ->
+                        GroupRow(
+                            title = change.summary,
+                            trailing = {
+                                TextButton(onClick = { model.undoChange(change) }) { Text("Undo") }
+                            },
+                        )
+                        if (index < recentChanges.lastIndex) Hairline()
                     }
                 }
             }
@@ -150,45 +222,22 @@ fun DashboardScreen(
 
         if (observations.isNotEmpty()) {
             item {
-                SectionCard("What stands out") {
-                    observations.take(4).forEach { note -> ObservationRow(note) }
+                GroupLabel("Worth knowing")
+                InsetGroup {
+                    observations.take(3).forEachIndexed { index, note ->
+                        ObservationRow(note)
+                        if (index < observations.take(3).lastIndex) Hairline(52.dp)
+                    }
                 }
-            }
-        }
-
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatTile(
-                    label = "In",
-                    amountMinor = dashboard.incomeMinor,
-                    currency = dashboard.currency,
-                    colour = positiveColour(),
-                    note = "$count payments",
-                    modifier = Modifier.weight(1f),
-                )
-                StatTile(
-                    label = "Out",
-                    amountMinor = dashboard.spendMinor,
-                    currency = dashboard.currency,
-                    colour = negativeColour(),
-                    note = "net " + Money.format(
-                        dashboard.netMinor, dashboard.currency, signed = true,
-                    ),
-                    modifier = Modifier.weight(1f),
-                )
             }
         }
 
         if (dashboard.byCategory.isNotEmpty()) {
             item {
-                SectionCard("Where the money went") {
+                SectionCard("Where it went") {
                     CategoryDonut(
                         slices = dashboard.byCategory.map {
-                            Triple(
-                                it.category,
-                                it.totalMinor,
-                                CATEGORY_COLOURS[it.category] ?: Color(0xFF9E9E9E),
-                            )
+                            Triple(it.category, it.totalMinor, categoryTint(it.category))
                         },
                         currency = dashboard.currency,
                     )
@@ -196,9 +245,32 @@ fun DashboardScreen(
             }
         }
 
+        if (dashboard.topMerchants.isNotEmpty()) {
+            item {
+                GroupLabel("Biggest this month")
+                InsetGroup {
+                    val top = dashboard.topMerchants.take(5)
+                    top.forEachIndexed { index, merchant ->
+                        GroupRow(
+                            title = merchant.merchant,
+                            subtitle = "${merchant.count} payment" +
+                                if (merchant.count == 1) "" else "s",
+                            trailing = {
+                                Text(
+                                    Money.format(merchant.totalMinor, dashboard.currency),
+                                    style = MoneyMedium,
+                                )
+                            },
+                        )
+                        if (index < top.lastIndex) Hairline()
+                    }
+                }
+            }
+        }
+
         if (dashboard.months.size > 1) {
             item {
-                SectionCard("In and out, by month") {
+                SectionCard("In and out") {
                     CashFlowChart(
                         dashboard.months.map { row ->
                             Triple(shortMonth(row.month), row.incomeMinor, row.expenseMinor)
@@ -207,59 +279,46 @@ fun DashboardScreen(
                 }
             }
         }
-
-        if (dashboard.topMerchants.isNotEmpty()) {
-            item {
-                SectionCard("Biggest this month") {
-                    dashboard.topMerchants.forEach { merchant ->
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                merchant.merchant,
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                "${merchant.count}×",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                Money.format(merchant.totalMinor, dashboard.currency),
-                                style = MoneyMedium,
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
 @Composable
-private fun MonthPicker(month: LocalDate, onStep: (Long) -> Unit) {
+private fun UpcomingRow(due: Upcoming, onClick: () -> Unit) {
+    GroupRow(
+        title = due.commitment.name,
+        icon = CategoryIcons.forCommitment(due.commitment.kind.name),
+        iconTint = if (due.isImminent) negativeColour() else MaterialTheme.colorScheme.primary,
+        onClick = onClick,
+        trailing = {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    Money.format(due.commitment.amountMinor, due.commitment.currency),
+                    style = MoneyMedium,
+                )
+                Spacer(Modifier.height(3.dp))
+                Pill(
+                    due.whenText,
+                    if (due.isImminent) negativeColour() else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+    )
+}
+
+/** Two chevrons rather than a row of its own, to keep the title line intact. */
+@Composable
+private fun MonthStepper(month: LocalDate, onStep: (Long) -> Unit) {
     val isCurrentMonth = month == LocalDate.now().withDayOfMonth(1)
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = { onStep(-1) }) {
-            Icon(Icons.Default.ChevronLeft, contentDescription = "Previous month")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onStep(-1) }, modifier = Modifier.size(36.dp)) {
+            Icon(Icons.Outlined.ChevronLeft, contentDescription = "Previous month")
         }
-        Text(
-            "${month.month.getDisplayName(DateTextStyle.FULL, Locale.getDefault())} ${month.year}",
-            style = MaterialTheme.typography.titleMedium,
-        )
-        IconButton(onClick = { onStep(1) }, enabled = !isCurrentMonth) {
-            Icon(Icons.Default.ChevronRight, contentDescription = "Next month")
+        IconButton(
+            onClick = { onStep(1) },
+            enabled = !isCurrentMonth,
+            modifier = Modifier.size(36.dp),
+        ) {
+            Icon(Icons.Outlined.ChevronRight, contentDescription = "Next month")
         }
     }
 }
@@ -285,25 +344,21 @@ private fun EmptyState(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("💷", style = MaterialTheme.typography.displayMedium)
-        Spacer(Modifier.height(16.dp))
-        Text("Nothing here yet", style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
+        Text("Nothing here yet", style = MaterialTheme.typography.headlineLarge)
+        Spacer(Modifier.height(10.dp))
         Text(
             "Import a statement from your bank app — the PDF it sends you, or a CSV " +
                 "export. It is read on this phone and stays on it.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            textAlign = TextAlign.Center,
         )
 
         if (error != null) {
             Spacer(Modifier.height(20.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer
-                ),
-                shape = RoundedCornerShape(16.dp),
+            Surface(
+                shape = RoundedCornerShape(Shape.card),
+                color = MaterialTheme.colorScheme.errorContainer,
             ) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
@@ -327,7 +382,7 @@ private fun EmptyState(
 
         Spacer(Modifier.height(24.dp))
         Button(onClick = onImport) { Text("Import a statement") }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(4.dp))
         TextButton(onClick = onAddManually) { Text("Or add a transaction by hand") }
     }
 }
@@ -341,52 +396,46 @@ fun TransactionsScreen(model: AppViewModel, padding: PaddingValues) {
     val search by model.search.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<TransactionRow?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
-        OutlinedTextField(
-            value = search,
-            onValueChange = model::setSearch,
-            placeholder = { Text("Search transactions") },
-            singleLine = true,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(
-                    start = 16.dp, end = 16.dp,
-                    top = padding.calculateTopPadding() + 8.dp, bottom = 8.dp,
-                ),
-        )
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(top = padding.calculateTopPadding())
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            ScreenTitle("Activity")
+            SearchField(search, model::setSearch)
+            Spacer(Modifier.height(4.dp))
+        }
 
         if (transactions.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    "Nothing matches that.",
+                    if (search.isBlank()) "Nothing here yet." else "Nothing matches that.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             return@Column
         }
 
+        // One inset group per day, which is what makes a long list scannable:
+        // the eye lands on the date, not on a wall of rows.
+        val byDay = transactions.groupBy { it.bookedAt }
+
         LazyColumn(
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp,
-                bottom = padding.calculateBottomPadding() + 24.dp,
+                bottom = padding.calculateBottomPadding() + 96.dp,
             ),
         ) {
-            var lastDate: LocalDate? = null
-            transactions.forEach { txn ->
-                if (txn.bookedAt != lastDate) {
-                    lastDate = txn.bookedAt
-                    item(key = "day-${txn.bookedAt}-${txn.id}") {
-                        Text(
-                            dayHeading(txn.bookedAt),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 14.dp, bottom = 4.dp),
-                        )
+            byDay.forEach { (date, rows) ->
+                item(key = "day-$date") { GroupLabel(dayHeading(date)) }
+                item(key = "rows-$date") {
+                    InsetGroup {
+                        rows.forEachIndexed { index, txn ->
+                            TransactionRowItem(txn) { editing = txn }
+                            if (index < rows.lastIndex) Hairline(62.dp)
+                        }
                     }
-                }
-                item(key = txn.id) {
-                    TransactionRowItem(txn) { editing = txn }
                 }
             }
         }
@@ -405,44 +454,46 @@ fun TransactionsScreen(model: AppViewModel, padding: PaddingValues) {
 }
 
 @Composable
+private fun SearchField(value: String, onChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        placeholder = { Text("Search") },
+        leadingIcon = {
+            Icon(
+                Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(Shape.control),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+@Composable
 private fun TransactionRowItem(txn: TransactionRow, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        CategoryBadge(
-            icon = CATEGORY_ICONS[txn.category] ?: "•",
-            tint = CATEGORY_COLOURS[txn.category] ?: MaterialTheme.colorScheme.primary,
-        )
-
-        Spacer(Modifier.width(13.dp))
-
-        Column(Modifier.weight(1f)) {
+    GroupRow(
+        title = txn.merchant.ifBlank { txn.description },
+        subtitle = txn.category,
+        icon = CategoryIcons[txn.category],
+        iconTint = categoryTint(txn.category),
+        onClick = onClick,
+        trailing = {
             Text(
-                txn.merchant.ifBlank { txn.description },
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                Money.format(txn.amountMinor, txn.currency, signed = true),
+                style = MoneyMedium,
+                color = amountColour(txn.amountMinor),
             )
-            Text(
-                txn.category,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
-
-        Spacer(Modifier.width(10.dp))
-
-        Text(
-            Money.format(txn.amountMinor, txn.currency, signed = true),
-            style = MoneyMedium,
-            color = amountColour(txn.amountMinor),
-        )
-    }
+        },
+    )
 }
 
 @Composable
@@ -459,10 +510,10 @@ private fun CategoryPicker(current: String, onDismiss: () -> Unit, onPick: (Stri
                         Modifier
                             .fillMaxWidth()
                             .clickable { onPick(category.name) }
-                            .padding(vertical = 12.dp),
+                            .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(category.icon)
+                        CategoryBadge(CategoryIcons[category.name], Color(category.colour))
                         Spacer(Modifier.width(12.dp))
                         Text(
                             category.name,
@@ -486,7 +537,7 @@ private fun dayHeading(date: LocalDate): String {
         today -> "Today"
         today.minusDays(1) -> "Yesterday"
         else -> {
-            val pattern = if (date.year == today.year) "EEE d MMM" else "d MMM yyyy"
+            val pattern = if (date.year == today.year) "EEEE d MMMM" else "d MMMM yyyy"
             date.format(DateTimeFormatter.ofPattern(pattern, Locale.getDefault()))
         }
     }
@@ -502,6 +553,17 @@ fun AssistantScreen(model: AppViewModel, padding: PaddingValues, onOpenSettings:
     val busy by model.chatBusy.collectAsStateWithLifecycle()
     var draft by remember { mutableStateOf("") }
 
+    // The system photo picker: no storage permission, and it only ever hands
+    // over the one image chosen.
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let {
+            model.askWithPhoto(draft.trim(), it)
+            draft = ""
+        }
+    }
+
     if (!hasKey) {
         Column(
             Modifier
@@ -511,17 +573,16 @@ fun AssistantScreen(model: AppViewModel, padding: PaddingValues, onOpenSettings:
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("✨", style = MaterialTheme.typography.displaySmall)
-            Spacer(Modifier.height(16.dp))
-            Text("The assistant is off", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(8.dp))
+            Text("The assistant is off", style = MaterialTheme.typography.headlineLarge)
+            Spacer(Modifier.height(10.dp))
             Text(
                 "Add a Claude or Gemini API key in Settings and you can ask questions " +
-                    "about your own spending. Until you do, nothing about your money " +
-                    "leaves this phone — and everything else works without it.",
+                    "about your own spending, or hand it a photo of an instalment plan " +
+                    "and have it filled in for you. Until you do, nothing about your " +
+                    "money leaves this phone — and everything else works without it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
             Button(onClick = onOpenSettings) { Text("Open Settings") }
@@ -539,58 +600,118 @@ fun AssistantScreen(model: AppViewModel, padding: PaddingValues, onOpenSettings:
                 .weight(1f)
                 .fillMaxWidth(),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            reverseLayout = true,
         ) {
-            if (messages.isEmpty()) {
-                item {
-                    Text(
-                        "Ask things like \"how much did I spend on groceries this month\" " +
-                            "or \"what changed since last month\".",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            items(messages) { message -> ChatBubble(message) }
             if (busy) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.size(15.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(10.dp))
-                        Text("Thinking…", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            "Thinking…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
+            }
+            // Newest at the bottom, which reverseLayout gives without having to
+            // drive a scroll position as messages arrive.
+            items(messages.reversed()) { message -> ChatBubble(message) }
+            if (messages.isEmpty()) {
+                item { AssistantIntro() }
             }
         }
 
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
                 .padding(bottom = padding.calculateBottomPadding()),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
         ) {
+            IconButton(
+                onClick = {
+                    photoPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                },
+                enabled = !busy,
+            ) {
+                Icon(Icons.Outlined.AddPhotoAlternate, contentDescription = "Send a photo")
+            }
             OutlinedTextField(
                 value = draft,
                 onValueChange = { draft = it },
-                placeholder = { Text("Ask about your money") },
+                placeholder = { Text("Ask, or tell it to change something") },
                 modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 maxLines = 4,
             )
-            Spacer(Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    val question = draft.trim()
-                    if (question.isNotEmpty()) {
-                        model.ask(question)
-                        draft = ""
-                    }
-                },
-                enabled = !busy && draft.isNotBlank(),
-            ) { Text("Ask") }
+            Spacer(Modifier.width(6.dp))
+            SendButton(enabled = !busy && draft.isNotBlank()) {
+                model.ask(draft.trim())
+                draft = ""
+            }
         }
+    }
+}
+
+@Composable
+private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(Shape.pill),
+        color = if (enabled) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.size(46.dp),
+    ) {
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(
+                Icons.Outlined.ArrowUpward,
+                contentDescription = "Send",
+                tint = if (enabled) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AssistantIntro() {
+    Column {
+        Text(
+            "It can answer and it can act.",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        listOf(
+            "\"How much went on groceries this month?\"",
+            "\"Add my €120 gym membership, taken on the 5th\"",
+            "\"I have €40 cash on me\"",
+            "Or send a photo of a Klarna or loan screen and it fills in the plan.",
+        ).forEach {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 3.dp),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Changes happen without asking first, and each one can be undone from the " +
+                "home screen.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -601,24 +722,27 @@ private fun ChatBubble(message: ChatMessage) {
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start,
     ) {
-        Card(
-            colors = CardDefaults.cardColors(
-                containerColor = when {
-                    message.isError -> MaterialTheme.colorScheme.errorContainer
-                    fromUser -> MaterialTheme.colorScheme.primaryContainer
-                    else -> MaterialTheme.colorScheme.surfaceVariant
-                }
-            ),
+        Surface(
+            color = when {
+                message.isError -> MaterialTheme.colorScheme.errorContainer
+                fromUser -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surface
+            },
+            contentColor = when {
+                message.isError -> MaterialTheme.colorScheme.onErrorContainer
+                fromUser -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
             shape = RoundedCornerShape(
-                topStart = 16.dp, topEnd = 16.dp,
-                bottomStart = if (fromUser) 16.dp else 4.dp,
-                bottomEnd = if (fromUser) 4.dp else 16.dp,
+                topStart = 18.dp, topEnd = 18.dp,
+                bottomStart = if (fromUser) 18.dp else 5.dp,
+                bottomEnd = if (fromUser) 5.dp else 18.dp,
             ),
-            modifier = Modifier.fillMaxWidth(0.88f),
+            modifier = Modifier.fillMaxWidth(0.86f),
         ) {
             Text(
                 message.text,
-                Modifier.padding(12.dp),
+                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -645,10 +769,11 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp,
             top = padding.calculateTopPadding() + 8.dp,
-            bottom = padding.calculateBottomPadding() + 24.dp,
+            bottom = padding.calculateBottomPadding() + 96.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { ScreenTitle("Settings") }
+
         item {
             SectionCard("Statements") {
                 Text(
@@ -717,7 +842,7 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(Shape.control),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Spacer(Modifier.height(6.dp))
@@ -801,7 +926,7 @@ private fun SafeToSpendHeadline(
     onOpenPlan: () -> Unit,
 ) {
     val today = LocalDate.now()
-    HeroCard(
+    BalanceHero(
         label = if (plan.isOverstretched) "Short by" else "Safe to spend",
         amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
         currency = plan.currency,
@@ -812,13 +937,13 @@ private fun SafeToSpendHeadline(
                 "${Money.format(plan.stillToLeaveMinor, plan.currency)} still has to leave " +
                     "this month, and there isn't enough for it."
             else ->
-                "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for " +
-                    "${plan.daysLeft} days, after " +
+                "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for the " +
+                    "${plan.daysLeft} days left, after " +
                     "${Money.format(plan.stillToLeaveMinor, plan.currency)} still to leave."
         },
         monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth(),
         short = plan.isOverstretched,
-        modifier = Modifier.clickable(onClick = onOpenPlan),
+        onClick = onOpenPlan,
     )
 }
 
@@ -844,20 +969,23 @@ private fun ObservationRow(note: com.financialmanager.app.plan.Observation) {
         com.financialmanager.app.plan.Severity.ALERT -> negativeColour()
         com.financialmanager.app.plan.Severity.WARNING -> MaterialTheme.colorScheme.tertiary
         com.financialmanager.app.plan.Severity.GOOD -> positiveColour()
-        com.financialmanager.app.plan.Severity.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val icon = when (note.severity) {
-        com.financialmanager.app.plan.Severity.ALERT -> "🚨"
-        com.financialmanager.app.plan.Severity.WARNING -> "⚠️"
-        com.financialmanager.app.plan.Severity.GOOD -> "✅"
-        com.financialmanager.app.plan.Severity.INFO -> "💡"
+        com.financialmanager.app.plan.Severity.INFO -> MaterialTheme.colorScheme.primary
     }
 
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Text(icon)
-        Spacer(Modifier.width(10.dp))
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+    ) {
+        Icon(
+            CategoryIcons.forSeverity(note.severity),
+            contentDescription = null,
+            tint = colour,
+            modifier = Modifier.size(20.dp),
+        )
+        Spacer(Modifier.width(12.dp))
         Column {
-            Text(note.title, style = MaterialTheme.typography.bodyMedium, color = colour)
+            Text(note.title, style = MaterialTheme.typography.bodyLarge)
             if (note.detail.isNotBlank()) {
                 Text(
                     note.detail,
@@ -929,10 +1057,7 @@ fun ManualTransactionDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     TextButton(onClick = { date = date.minusDays(1) }) { Text("−1 day") }
-                    Text(
-                        dayHeading(date),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Text(dayHeading(date), style = MaterialTheme.typography.bodyMedium)
                     TextButton(
                         onClick = { date = date.plusDays(1) },
                         enabled = date < LocalDate.now(),

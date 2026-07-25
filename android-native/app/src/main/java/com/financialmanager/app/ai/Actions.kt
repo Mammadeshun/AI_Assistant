@@ -60,6 +60,44 @@ class Actions(
         "That didn't work: ${error.message}"
     }
 
+    /**
+     * Saves what was read out of a photo, straight away.
+     *
+     * There used to be a review dialog in front of this. It was the right
+     * instinct and the wrong shape: the user asked for changes to happen without
+     * being asked first, and every one of these writes an undo record like any
+     * other change, so a misread line costs one tap on the home screen rather
+     * than a checkbox before every correct one.
+     */
+    suspend fun addProposed(proposals: List<ProposedCommitment>): List<String> =
+        proposals.map { proposal ->
+            val commitment = Commitment(
+                name = proposal.name,
+                kind = proposal.kind,
+                amountMinor = proposal.monthlyAmountMinor,
+                currency = proposal.currency,
+                dayOfMonth = proposal.dayOfMonth,
+                remainingMinor = proposal.remainingMinor
+                    ?: proposal.instalmentsLeft?.let { it * proposal.monthlyAmountMinor },
+                note = proposal.note,
+            )
+            val id = db.commitments().insert(commitment)
+            changes.record(
+                ChangeRecord(
+                    summary = "Added ${commitment.name} from a photo, " +
+                        "${Money.format(commitment.amountMinor, commitment.currency)} a month",
+                    inverse = inverse("delete_commitment") { put("id", id) },
+                )
+            )
+            buildString {
+                append("Added ${commitment.name}, ")
+                append(Money.format(commitment.amountMinor, commitment.currency))
+                append(" a month")
+                commitment.dayOfMonth?.let { append(", taken on day $it") }
+                proposal.instalmentsLeft?.let { append(", $it payments left") }
+            }
+        }
+
     /* --- commitments -------------------------------------------------- */
 
     private suspend fun addCommitment(args: JsonObject): String {

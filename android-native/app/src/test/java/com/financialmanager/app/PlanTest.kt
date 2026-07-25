@@ -139,6 +139,77 @@ class PlanTest {
         assertEquals(-5_000, progress.remainingMinor)
         assertFalse(progress.isAheadOfPace(LocalDate.of(2026, 3, 5)))
     }
+
+    /* --- what is about to be taken ------------------------------------ */
+
+    @Test
+    fun `a payment later this month is due this month`() {
+        val due = Planner
+            .upcoming(listOf(commitment("Rent", 50_000, day = 20)), today = LocalDate.of(2026, 3, 4))
+            .single()
+
+        assertEquals(LocalDate.of(2026, 3, 20), due.due)
+        assertEquals(16, due.daysAway)
+        assertFalse(due.isImminent)
+    }
+
+    @Test
+    fun `a payment whose day has passed rolls to next month`() {
+        val due = Planner
+            .upcoming(listOf(commitment("Rent", 50_000, day = 3)), today = LocalDate.of(2026, 3, 20))
+            .single()
+
+        assertEquals(LocalDate.of(2026, 4, 3), due.due)
+    }
+
+    @Test
+    fun `today counts as due today rather than a month away`() {
+        val due = Planner
+            .upcoming(listOf(commitment("Rent", 50_000, day = 9)), today = LocalDate.of(2026, 3, 9))
+            .single()
+
+        assertEquals(0, due.daysAway)
+        assertEquals("Today", due.whenText)
+        assertTrue(due.isImminent)
+    }
+
+    @Test
+    fun `the 31st lands on the last day of a short month`() {
+        // February has no 31st. Clamping rather than throwing is the whole point.
+        val due = Planner
+            .upcoming(listOf(commitment("Card", 9_900, day = 31)), today = LocalDate.of(2026, 2, 5))
+            .single()
+
+        assertEquals(LocalDate.of(2026, 2, 28), due.due)
+    }
+
+    @Test
+    fun `a commitment with no day recorded is left out rather than guessed`() {
+        assertTrue(
+            Planner.upcoming(
+                listOf(commitment("Netflix", 1_299)), today = LocalDate.of(2026, 3, 4),
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun `paused commitments are not coming up`() {
+        val paused = commitment("Gym", 3_000, day = 10).copy(active = false)
+        assertTrue(Planner.upcoming(listOf(paused), today = LocalDate.of(2026, 3, 4)).isEmpty())
+    }
+
+    @Test
+    fun `soonest first`() {
+        val due = Planner.upcoming(
+            listOf(
+                commitment("Late", 100, day = 28),
+                commitment("Soon", 100, day = 6),
+                commitment("Middle", 100, day = 15),
+            ),
+            today = LocalDate.of(2026, 3, 4),
+        )
+        assertEquals(listOf("Soon", "Middle", "Late"), due.map { it.commitment.name })
+    }
 }
 
 class RecurringDetectorTest {
