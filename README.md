@@ -80,20 +80,38 @@ so you can't be shown a stale balance.
 
 ## Getting started
 
-**No computer?** See **[DEPLOY.md](DEPLOY.md)** — it walks through putting this
-on a free host using only a phone browser, so the app has a server to talk to.
-
-Otherwise, on any machine:
+One command, on Windows, macOS or Linux:
 
 ```bash
-./run.sh
+python start.py
 ```
 
-That creates a virtualenv, installs dependencies, generates an `.env` with fresh
-secrets, and starts the app on <http://localhost:8000>. Open it and create your
-account — the first sign-up claims the instance, and registration then closes.
+**On Windows you can also just double-click `start-windows.bat`.**
 
-Prefer to do it by hand:
+It creates a private Python environment, installs everything, generates your
+encryption keys, picks a free port, starts the app, and opens your browser.
+First run takes a few minutes for the installs; after that it's a few seconds.
+Run it again any time — it skips whatever is already done.
+
+You need **Python 3.11 or newer**, from [python.org](https://www.python.org/downloads/).
+On Windows, tick *Add python.exe to PATH* during installation. Nothing else.
+
+Create your account when the browser opens. The first sign-up claims the
+instance and registration then closes.
+
+**No computer at all?** See **[DEPLOY.md](DEPLOY.md)** — it puts this on a free
+host using only a phone browser.
+
+### If something goes wrong
+
+The launcher explains failures rather than dumping a traceback: a too-old
+Python, a missing `venv` module, no free port, a network problem during install.
+Read the message — it names the fix.
+
+`./run.sh` is still there for Linux and macOS if you prefer a shell script, but
+`start.py` is the supported path and the one that works everywhere.
+
+Prefer to do it entirely by hand:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
