@@ -1,0 +1,89 @@
+# Builds the native Android app and publishes the APK as a release asset, so it
+# can be downloaded straight onto a phone with no computer in the loop.
+name: Build Android app
+
+on:
+  push:
+    branches: [claude/financial-manager-revolut-07q4wi]
+    paths:
+      - "android-native/**"
+      - ".github/workflows/build-android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Run the tests
+        working-directory: android-native
+        # The parity test against a real statement skips without one, which is
+        # what should happen here: nobody's bank history belongs in CI.
+        run: gradle --no-daemon :app:testDebugUnitTest
+
+      - name: Build the APK
+        working-directory: android-native
+        run: gradle --no-daemon :app:assembleRelease
+
+      - name: Check the APK is sane before publishing it
+        working-directory: android-native
+        run: |
+          set -euo pipefail
+          APK=app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+
+          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt
+          BADGING=$("$AAPT" dump badging "$APK")
+          echo "$BADGING" | head -3
+
+          echo "$BADGING" | grep -q "package: name='com.financialmanager.app'"
+          echo "$BADGING" | grep -q "launchable-activity"
+          # The PDF reader has to be inside the APK, or importing does nothing.
+          unzip -l "$APK" | grep -q "pdfbox"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: financial-manager-apk
+          path: android-native/app/build/outputs/apk/release/app-release.apk
+
+      - name: Publish as a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp android-native/app/build/outputs/apk/release/app-release.apk FinancialManager.apk
+
+          cat > notes.md <<'NOTES'
+          The Android app. Nothing else needed — no computer, no server, no account.
+
+          1. Download **FinancialManager.apk** below on your phone.
+          2. Open it. Android will ask whether to allow installing from this
+             source; that is expected for an app that isn't from the Play Store.
+          3. Open the app and import your statement — the PDF your bank app
+             sends you, or a CSV export.
+
+          Your transactions are stored on the phone itself and are not sent
+          anywhere. The assistant is the one exception, and only once you add
+          your own API key in Settings.
+
+          The APK is signed with Android's standard debug key, which is enough to
+          install it on your own device.
+          NOTES
+
+          gh release delete android-build --yes --cleanup-tag 2>/dev/null || true
+          gh release create android-build FinancialManager.apk \
+            --title "Financial Manager for Android" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA"
