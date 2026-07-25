@@ -198,6 +198,13 @@ def main() -> None:
     print("  Your browser should open by itself. If not, paste that address in.")
     print("  Leave this window open — closing it stops the app.")
     print(paint("  Press Ctrl+C to stop.", "2"))
+
+    if sys.platform == "win32":
+        # The prompt appears the moment the server binds, and dismissing it is
+        # the usual reason a phone on the same network can't connect.
+        print()
+        print(paint("  Windows may ask whether to allow Python through the firewall.", "33"))
+        print(paint("  Click Allow — without it, your phone cannot reach this app.", "33"))
     print()
 
     threading.Thread(target=open_browser_when_ready, args=(url, port), daemon=True).start()

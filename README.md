@@ -80,6 +80,9 @@ so you can't be shown a stale balance.
 
 ## Getting started
 
+**On Windows? Read [WINDOWS.md](WINDOWS.md)** — no terminal or git needed, four
+steps with a download link.
+
 One command, on Windows, macOS or Linux:
 
 ```bash
