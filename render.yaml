@@ -1,0 +1,60 @@
+# Render blueprint — deploys the app and a Postgres database together.
+#
+# In Render: New → Blueprint → pick this repo. Everything below is created for
+# you; the only things you fill in are the values marked sync: false.
+#
+# Why Postgres and not the SQLite file: Render's free tier gives a container
+# with no persistent disk, so a SQLite file is wiped on every restart and
+# restarts are frequent. The database has to live outside the container.
+services:
+  - type: web
+    name: financial-manager
+    runtime: python
+    plan: free
+    region: frankfurt          # change to oregon / singapore if you're closer to one
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+
+      # Generated once by Render and then kept. Both must stay stable: the
+      # first decrypts your stored bank tokens, the second signs session
+      # cookies. Changing either locks you out of one or the other.
+      - key: ENCRYPTION_KEY
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # The app is on the public internet here, so sign-up is closed behind a
+      # code. Render generates one; read it in the dashboard under Environment,
+      # and enter it once when you create your account.
+      - key: SIGNUP_TOKEN
+        generateValue: true
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: financial-manager-db
+          property: connectionString
+
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DEFAULT_CURRENCY
+        value: GBP
+
+      # Optional — paste your own values in the Render dashboard when you have
+      # them. The app runs fine without any of these.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GOCARDLESS_SECRET_ID
+        sync: false
+      - key: GOCARDLESS_SECRET_KEY
+        sync: false
+
+databases:
+  - name: financial-manager-db
+    plan: free
+    region: frankfurt          # must match the service region above
+    databaseName: finance
+    user: finance

@@ -13,7 +13,9 @@ os.environ.update(
     {
         # Ignore any real .env: tests define their own world.
         "FM_ENV_FILE": str(_TMP / "no-such-env"),
-        "DATABASE_URL": f"sqlite:///{_TMP / 'test.db'}",
+        # SQLite by default. Set TEST_DATABASE_URL to run the same suite against
+        # Postgres, which is what a hosted deployment actually runs on.
+        "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", f"sqlite:///{_TMP / 'test.db'}"),
         "DATA_DIR": str(_TMP),
         "ENCRYPTION_KEY": Fernet.generate_key().decode(),
         "SESSION_SECRET": "test-session-secret",

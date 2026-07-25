@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     # Base URL this app is reachable at. Used to build OAuth redirect URIs.
     public_base_url: str = "http://localhost:8000"
 
+    # When the app is on the public internet, an open sign-up form means the
+    # first stranger to find the URL claims the instance. Set this and the
+    # sign-up form requires it. Ignored when empty (fine on a home network).
+    signup_token: str = ""
+    # Failed sign-in attempts allowed per email before a cool-off.
+    login_max_attempts: int = 8
+    login_lockout_seconds: int = 300
+
     # Fernet key used to encrypt provider credentials at rest.
     # Generate with:  python -m backend.app.security --new-key
     encryption_key: str = ""
@@ -92,8 +100,37 @@ class Settings(BaseSettings):
         return self.gocardless_redirect_uri or f"{self.public_base_url}/api/connections/gocardless/callback"
 
 
+def normalise_database_url(url: str) -> str:
+    """Make a hosting provider's DATABASE_URL usable by SQLAlchemy.
+
+    Managed Postgres is usually handed out as `postgres://…`, a scheme
+    SQLAlchemy dropped support for. Rewriting it here means the URL can be
+    pasted from the provider's dashboard unchanged.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
+
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
+
+    settings.database_url = normalise_database_url(settings.database_url)
+
+    # Render (and most PaaS hosts) publish the app's own public URL at runtime.
+    # Picking it up automatically keeps OAuth redirect URIs correct without the
+    # user having to paste the URL back into the config after the first deploy.
+    external_url = os.getenv("RENDER_EXTERNAL_URL")
+    if external_url and settings.public_base_url == "http://localhost:8000":
+        settings.public_base_url = external_url.rstrip("/")
+
+    # Anything reached over HTTPS should be issuing secure cookies.
+    if settings.public_base_url.startswith("https://"):
+        settings.cookie_secure = True
+
+    if settings.database_url.startswith("sqlite"):
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings

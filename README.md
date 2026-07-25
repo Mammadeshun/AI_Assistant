@@ -80,6 +80,11 @@ so you can't be shown a stale balance.
 
 ## Getting started
 
+**No computer?** See **[DEPLOY.md](DEPLOY.md)** — it walks through putting this
+on a free host using only a phone browser, so the app has a server to talk to.
+
+Otherwise, on any machine:
+
 ```bash
 ./run.sh
 ```
@@ -283,6 +288,8 @@ API docs, while the app is running: <http://localhost:8000/docs>.
 - **No FX conversion**, by design (see above).
 - **Read-only.** No payments, transfers or standing-order changes.
 - **Single user per instance.**
+- **Deployed publicly, sign-up is gated by a code** (`SIGNUP_TOKEN`) so the
+  first visitor can't claim your instance. Not needed on a home network.
 - **AI answers are only as good as your data.** The assistant reads what has been
   synced or imported — it cannot see an account you haven't connected.
 - Open Banking gives you up to 730 days of history, depending on what the bank

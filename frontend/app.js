@@ -1134,10 +1134,12 @@ async function render() {
   }
 }
 
-function showAuth(registered = true) {
+function showAuth(registered = true, tokenRequired = false) {
   document.getElementById("app").classList.add("hidden");
   document.getElementById("auth-screen").classList.remove("hidden");
   document.getElementById("register-only").classList.toggle("hidden", registered);
+  document.getElementById("signup-token-field")
+    .classList.toggle("hidden", registered || !tokenRequired);
   document.getElementById("auth-submit").textContent = registered ? "Sign in" : "Create your account";
   document.getElementById("auth-sub").textContent = registered
     ? "Sign in to your instance."
@@ -1218,6 +1220,8 @@ async function boot() {
       if (mode === "register") {
         body.display_name = form.get("display_name") || null;
         body.base_currency = form.get("base_currency");
+        const token = form.get("signup_token");
+        if (token) body.signup_token = token;
       }
       state.user = await api(`/api/auth/${mode}`, { method: "POST", body });
       await showApp();
@@ -1232,7 +1236,7 @@ async function boot() {
     await showApp();
   } catch {
     const status = await api("/api/auth/status").catch(() => ({ registered: true }));
-    showAuth(status.registered);
+    showAuth(status.registered, status.signup_token_required);
   }
 }
 

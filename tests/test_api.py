@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import io
 
+from backend.app.config import get_settings
 from backend.app.security import CredentialCipher, hash_password, verify_password
 
 
@@ -257,3 +258,74 @@ def test_dashboard_renders_with_no_data(authed_client):
     assert data["summary"]["income_minor"] == 0
     assert data["net_worth"]["account_count"] == 0
     assert data["insights"] == []
+
+
+# --- public deployment hardening ------------------------------------------
+def test_database_url_is_normalised_for_sqlalchemy():
+    """Hosts hand out postgres:// URLs, a scheme SQLAlchemy dropped."""
+    from backend.app.config import normalise_database_url
+
+    assert normalise_database_url("postgres://u:p@host/db") == "postgresql+psycopg://u:p@host/db"
+    assert normalise_database_url("postgresql://u:p@host/db") == "postgresql+psycopg://u:p@host/db"
+    # Already-explicit and non-Postgres URLs are left alone.
+    assert normalise_database_url("postgresql+psycopg://u@h/d") == "postgresql+psycopg://u@h/d"
+    assert normalise_database_url("sqlite:///./data/finance.db") == "sqlite:///./data/finance.db"
+
+
+def test_signup_token_is_not_required_by_default(client):
+    assert client.get("/api/auth/status").json()["signup_token_required"] is False
+
+
+def test_signup_token_gates_registration(client, monkeypatch):
+    """On a public URL, the first stranger to find it must not claim the app."""
+    from backend.app import routers
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "signup_token", "let-me-in", raising=False)
+
+    assert client.get("/api/auth/status").json()["signup_token_required"] is True
+
+    body = {"email": "me@example.com", "password": "a-long-enough-password"}
+    assert client.post("/api/auth/register", json=body).status_code == 403
+    assert client.post(
+        "/api/auth/register", json={**body, "signup_token": "wrong"}
+    ).status_code == 403
+
+    ok = client.post("/api/auth/register", json={**body, "signup_token": "let-me-in"})
+    assert ok.status_code == 201
+
+
+def test_repeated_failed_logins_are_throttled(authed_client, monkeypatch):
+    from backend.app.routers import auth as auth_router
+
+    auth_router._failed_logins.clear()
+    settings = get_settings()
+    monkeypatch.setattr(settings, "login_max_attempts", 3, raising=False)
+
+    wrong = {"email": "me@example.com", "password": "definitely-not-it"}
+    for _ in range(3):
+        assert authed_client.post("/api/auth/login", json=wrong).status_code == 401
+
+    blocked = authed_client.post("/api/auth/login", json=wrong)
+    assert blocked.status_code == 429
+    assert "Try again in" in blocked.json()["detail"]
+
+    # The correct password is refused too while locked out, so the lockout
+    # can't be sidestepped by guessing right on the next attempt.
+    correct = {"email": "me@example.com", "password": "a-long-enough-password"}
+    assert authed_client.post("/api/auth/login", json=correct).status_code == 429
+    auth_router._failed_logins.clear()
+
+
+def test_successful_login_clears_the_failure_count(authed_client):
+    from backend.app.routers import auth as auth_router
+
+    auth_router._failed_logins.clear()
+    authed_client.post("/api/auth/login", json={"email": "me@example.com", "password": "nope"})
+    assert auth_router._failed_logins.get("me@example.com")
+
+    authed_client.post(
+        "/api/auth/login",
+        json={"email": "me@example.com", "password": "a-long-enough-password"},
+    ).raise_for_status()
+    assert not auth_router._failed_logins.get("me@example.com")

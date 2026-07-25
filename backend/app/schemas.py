@@ -17,6 +17,8 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=10, max_length=200)
     display_name: str | None = Field(default=None, max_length=120)
     base_currency: str = Field(default="GBP", min_length=3, max_length=3)
+    # Only required when the instance sets SIGNUP_TOKEN (public deployments).
+    signup_token: str | None = None
 
     @field_validator("base_currency")
     @classmethod

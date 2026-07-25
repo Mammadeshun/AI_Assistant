@@ -12,11 +12,27 @@ from .models import Base
 
 _settings = get_settings()
 
-_connect_args = {"check_same_thread": False} if _settings.database_url.startswith("sqlite") else {}
-engine = create_engine(_settings.database_url, connect_args=_connect_args, future=True)
+_is_sqlite = _settings.database_url.startswith("sqlite")
+
+if _is_sqlite:
+    engine = create_engine(
+        _settings.database_url, connect_args={"check_same_thread": False}, future=True
+    )
+else:
+    # Managed Postgres on a free tier drops idle connections and restarts under
+    # you; pre_ping revalidates a connection before use and recycle retires them
+    # before the provider does, so a nap doesn't surface as a failed request.
+    engine = create_engine(
+        _settings.database_url,
+        future=True,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=5,
+        max_overflow=5,
+    )
 
 
-if _settings.database_url.startswith("sqlite"):
+if _is_sqlite:
 
     @event.listens_for(engine, "connect")
     def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - driver hook
