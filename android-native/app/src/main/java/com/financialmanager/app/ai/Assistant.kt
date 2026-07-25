@@ -455,7 +455,21 @@ class Assistant(
             append(window(lastMonth))
             if (merchants.isNotEmpty()) appendLine("Biggest merchants this month: $merchants")
 
-            if (commitments.isEmpty()) {
+            val income = commitments.filter { it.kind.isIncome }
+            if (income.isNotEmpty()) {
+                appendLine("Regular income they have recorded:")
+                income.forEach { row ->
+                    append("  ${row.name} ${fmt(row.amountMinor, currency)} a month")
+                    row.dayOfMonth?.let { append(", arrives on day $it") }
+                    appendLine()
+                }
+                appendLine(
+                    "  ${fmt(plan.expectedIncomeMinor, currency)} of that is still to arrive " +
+                        "this month, and is NOT included in what is safe to spend below."
+                )
+            }
+
+            if (commitments.none { !it.kind.isIncome }) {
                 appendLine(
                     "The user has recorded no debts, loans or regular commitments. If they " +
                         "ask about affording something, say that this is missing rather " +
@@ -463,7 +477,7 @@ class Assistant(
                 )
             } else {
                 appendLine("Committed every month, already promised:")
-                commitments.forEach { c ->
+                commitments.filterNot { it.kind.isIncome }.forEach { c ->
                     append("  ${c.name} (${c.kind.label}) ${fmt(c.amountMinor, currency)}")
                     c.dayOfMonth?.let { append(", taken on day $it") }
                     c.monthsRemaining?.let { append(", $it payments left") }
@@ -534,8 +548,15 @@ class Assistant(
             and the amounts still owed, and be straight about how long it takes.
 
             You can also change their records: add or edit debts, instalments,
-            subscriptions and bills, set cash on hand, set budgets, add a
-            transaction, and refile a merchant into a category.
+            subscriptions, bills and regular income, set cash on hand, set
+            budgets, add a transaction, and refile a merchant into a category.
+
+            Regular income goes in through add_commitment with kind INCOME —
+            a salary, an invoice they always send, anything that arrives every
+            month. Record the day it lands when they say it. Money still to
+            arrive is never part of what is safe to spend, so do not tell them
+            they can afford something on the strength of it; say when it comes
+            in instead.
 
             When they ask for a change, make it. Do not ask permission and do
             not offer to do it — they have said they want it done. Every change

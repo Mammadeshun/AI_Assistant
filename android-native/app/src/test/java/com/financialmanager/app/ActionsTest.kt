@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -66,6 +69,28 @@ class ActionsTest {
 
         assertTrue(actions.undo(change))
         assertTrue(db.commitments().activeNow().isEmpty())
+    }
+
+    @Test
+    fun `records regular income, and says it is not spending money yet`() = runTest {
+        // What the user actually asked for: "add revenue monthly around 800 and
+        // it's going to be in my bank on the 10th".
+        val reply = run(
+            "add_commitment",
+            """{"name":"Revenue","monthlyAmount":800,"kind":"INCOME","dayOfMonth":10}""",
+        )
+
+        val saved = db.commitments().activeNow().single()
+        assertEquals(CommitmentKind.INCOME, saved.kind)
+        assertEquals(80_000L, saved.amountMinor)
+        assertEquals(10, saved.dayOfMonth)
+
+        // It must not be totalled as something owed every month.
+        assertEquals(0L, db.commitments().monthlyTotal("EUR").first())
+        assertTrue(
+            "the reply should be clear that this is not spendable yet: $reply",
+            reply.contains("safe to spend"),
+        )
     }
 
     @Test
@@ -196,5 +221,75 @@ class ActionsTest {
 
         assertTrue(db.changes().recent().first().isEmpty())
         assertNull(db.changes().recent().first().firstOrNull())
+    }
+}
+
+/**
+ * Checks the tool declarations themselves.
+ *
+ * These are handed to a service, which validates them and refuses the whole
+ * request if any one is malformed — so a slip in a tool the user never invokes
+ * takes down every question they ask. That is exactly what happened: a copied
+ * line left `list_commitments` requiring a parameter it does not have, and
+ * Gemini answered with "function_declarations[3].parameters.required[0]:
+ * property is not defined" for anything at all.
+ *
+ * A compiler cannot see inside a JSON builder. This can.
+ */
+@RunWith(AndroidJUnit4::class)
+@Config(sdk = [34])
+class ToolDeclarationTest {
+
+    private val tools = Actions.DECLARATIONS.map { it.jsonObject }
+
+    @Test
+    fun `every required parameter is one the tool actually declares`() {
+        tools.forEach { tool ->
+            val name = tool["name"]!!.jsonPrimitive.content
+            val parameters = tool["parameters"]!!.jsonObject
+            val properties = parameters["properties"]!!.jsonObject.keys
+            val required = parameters["required"]!!.jsonArray.map { it.jsonPrimitive.content }
+
+            required.forEach { field ->
+                assertTrue(
+                    "$name requires \"$field\", which it does not define. " +
+                        "It declares: ${properties.joinToString(", ").ifEmpty { "nothing" }}",
+                    field in properties,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `every tool has a name, a description and a parameter object`() {
+        assertTrue("there should be tools at all", tools.isNotEmpty())
+        tools.forEach { tool ->
+            val name = tool["name"]?.jsonPrimitive?.content.orEmpty()
+            assertTrue("a tool is missing its name", name.isNotBlank())
+            assertTrue(
+                "$name has no description, so the model cannot tell when to use it",
+                tool["description"]?.jsonPrimitive?.content.orEmpty().isNotBlank(),
+            )
+            assertEquals(
+                "$name should take an object of parameters",
+                "object",
+                tool["parameters"]!!.jsonObject["type"]!!.jsonPrimitive.content,
+            )
+        }
+    }
+
+    @Test
+    fun `every declared tool is one that can actually be executed`() {
+        // A tool the model can call and the app cannot carry out answers "there
+        // is no tool called that", which reads to the user as the assistant
+        // being broken.
+        val executable = setOf(
+            "add_commitment", "update_commitment", "remove_commitment", "list_commitments",
+            "set_cash", "set_budget", "add_transaction", "recategorise_merchant",
+        )
+        tools.forEach { tool ->
+            val name = tool["name"]!!.jsonPrimitive.content
+            assertTrue("$name is declared but nothing handles it", name in executable)
+        }
     }
 }

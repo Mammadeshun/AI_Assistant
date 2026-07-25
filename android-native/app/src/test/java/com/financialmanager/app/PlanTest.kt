@@ -198,6 +198,79 @@ class PlanTest {
         assertTrue(Planner.upcoming(listOf(paused), today = LocalDate.of(2026, 3, 4)).isEmpty())
     }
 
+    /* --- income --------------------------------------------------------- */
+
+    @Test
+    fun `income is not counted as something committed`() {
+        val plan = Planner.monthPlan(
+            currency = "EUR",
+            balanceMinor = 100_000,
+            incomeMinor = 0,
+            spentMinor = 0,
+            commitments = listOf(
+                commitment("Rent", 50_000, day = 1),
+                commitment("Revenue", 80_000, day = 10, kind = CommitmentKind.INCOME),
+            ),
+            totalOwedMinor = 0,
+            today = LocalDate.of(2026, 3, 4),
+        )
+
+        assertEquals(50_000, plan.committedMinor)
+    }
+
+    @Test
+    fun `income still to arrive does not raise what is safe to spend`() {
+        // The whole point of the figure. €800 landing on the 10th is not €800
+        // you can spend on the 4th, and a number that says otherwise is worse
+        // than no number.
+        val plan = Planner.monthPlan(
+            currency = "EUR",
+            balanceMinor = 20_000,
+            incomeMinor = 0,
+            spentMinor = 0,
+            commitments = listOf(
+                commitment("Revenue", 80_000, day = 10, kind = CommitmentKind.INCOME),
+            ),
+            totalOwedMinor = 0,
+            today = LocalDate.of(2026, 3, 4),
+        )
+
+        assertEquals(20_000, plan.safeToSpendMinor)
+        assertEquals(80_000, plan.expectedIncomeMinor)
+    }
+
+    @Test
+    fun `income whose day has passed is already in the balance`() {
+        val plan = Planner.monthPlan(
+            currency = "EUR",
+            balanceMinor = 100_000,
+            incomeMinor = 0,
+            spentMinor = 0,
+            commitments = listOf(
+                commitment("Revenue", 80_000, day = 10, kind = CommitmentKind.INCOME),
+            ),
+            totalOwedMinor = 0,
+            today = LocalDate.of(2026, 3, 20),
+        )
+
+        assertEquals(0, plan.expectedIncomeMinor)
+    }
+
+    @Test
+    fun `income appears in what is coming up, marked as coming in`() {
+        val due = Planner.upcoming(
+            listOf(
+                commitment("Rent", 50_000, day = 6),
+                commitment("Revenue", 80_000, day = 10, kind = CommitmentKind.INCOME),
+            ),
+            today = LocalDate.of(2026, 3, 4),
+        )
+
+        assertEquals(listOf("Rent", "Revenue"), due.map { it.commitment.name })
+        assertFalse(due[0].isIncome)
+        assertTrue(due[1].isIncome)
+    }
+
     @Test
     fun `soonest first`() {
         val due = Planner.upcoming(

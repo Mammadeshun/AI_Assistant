@@ -122,7 +122,11 @@ private fun Dashboard() {
             )
 
             GroupLabel("Coming up", trailing = {
-                Text("€620.00", style = MoneyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "€620.00 out",
+                    style = MoneyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             })
             InsetGroup {
                 GroupRow(
@@ -145,6 +149,25 @@ private fun Dashboard() {
                             Text("€120.00", style = MoneyMedium)
                             Spacer(Modifier.height(3.dp))
                             Pill("in 9 days", MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                )
+                Hairline(62.dp)
+                // Money arriving, which has to read as different at a glance
+                // from money leaving without needing to be read.
+                GroupRow(
+                    title = "Revenue",
+                    icon = CategoryIcons.forCommitment("INCOME"),
+                    iconTint = positiveColour(),
+                    trailing = {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                Money.format(80_000, "EUR", signed = true),
+                                style = MoneyMedium,
+                                color = positiveColour(),
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Pill("in 6 days", MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     },
                 )

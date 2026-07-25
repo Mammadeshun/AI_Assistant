@@ -47,6 +47,11 @@ rent leaving on the 5th.
 along with the cash in your pocket that no bank export knows about, and any
 monthly limits you want to set on a category.
 
+Regular income goes there too — a salary, an invoice you always send. It appears
+under Coming up as it approaches, but it deliberately does **not** raise what is
+safe to spend until it lands. Money due on the 10th is not money you have on the
+4th, and a figure that pretends otherwise is how an account goes overdrawn.
+
 There is a **home-screen widget**: the same figure, the month running down as a
 row of blocks, and the next payment due. Long-press the home screen → Widgets →
 Financial Manager.

@@ -116,15 +116,30 @@ class Actions(
             note = args.text("note"),
         )
         val id = db.commitments().insert(commitment)
+        val direction = if (commitment.kind.isIncome) "a month coming in" else "a month"
 
         changes.record(
             ChangeRecord(
                 summary = "Added ${commitment.name}, " +
-                    "${Money.format(commitment.amountMinor, currency)} a month",
+                    "${Money.format(commitment.amountMinor, currency)} $direction",
                 inverse = inverse("delete_commitment") { put("id", id) },
             )
         )
-        return "Added ${commitment.name} at ${Money.format(commitment.amountMinor, currency)} a month."
+        return buildString {
+            append("Added ${commitment.name} at ")
+            append(Money.format(commitment.amountMinor, currency))
+            append(" $direction")
+            commitment.dayOfMonth?.let { append(", on day $it") }
+            append(".")
+            if (commitment.kind.isIncome) {
+                // Said plainly, because the opposite is the natural assumption
+                // and someone acting on it would overspend.
+                append(
+                    " It shows under Coming up, but it does not raise what is safe " +
+                        "to spend until it actually arrives."
+                )
+            }
+        }
     }
 
     private suspend fun updateCommitment(args: JsonObject): String {
@@ -385,12 +400,16 @@ class Actions(
          * wrapped differently.
          */
         val DECLARATIONS = buildJsonArray {
-            add(tool("add_commitment", "Record a debt, instalment plan, subscription or bill that the user pays every month.", required = listOf("name", "monthlyAmount")) {
+            add(tool("add_commitment", "Record something that happens every month: a debt, instalment plan, subscription or bill the user pays, or income they receive.", required = listOf("name", "monthlyAmount")) {
                 putJsonObject("name") { put("type", "string") }
-                putJsonObject("monthlyAmount") { put("type", "number"); put("description", "What leaves the account each month") }
+                putJsonObject("monthlyAmount") { put("type", "number"); put("description", "What moves each month, always positive") }
                 putJsonObject("kind") {
                     put("type", "string")
-                    put("description", "DEBT, INSTALMENT, SUBSCRIPTION or BILL")
+                    put(
+                        "description",
+                        "DEBT, INSTALMENT, SUBSCRIPTION, BILL, or INCOME for money " +
+                            "coming in every month such as a salary or regular invoice",
+                    )
                 }
                 putJsonObject("dayOfMonth") { put("type", "integer") }
                 putJsonObject("remainingTotal") { put("type", "number"); put("description", "Everything still owed, for debts and instalment plans") }
@@ -412,9 +431,14 @@ class Actions(
                 putJsonObject("name") { put("type", "string") }
             })
 
-            add(tool("list_commitments", "List what is currently recorded, with amounts and days.", required = listOf("amount")) {})
+            // Takes no arguments. It used to declare "amount" as required, which
+            // was a copy-and-paste slip from the tool below — and one Gemini
+            // rejects outright, with an error naming an array index rather than
+            // the tool, which took the whole assistant down for every question
+            // rather than just this one call.
+            add(tool("list_commitments", "List what is currently recorded, with amounts and days.") {})
 
-            add(tool("set_cash", "Set how much cash the user is carrying.") {
+            add(tool("set_cash", "Set how much cash the user is carrying.", required = listOf("amount")) {
                 putJsonObject("amount") { put("type", "number") }
             })
 

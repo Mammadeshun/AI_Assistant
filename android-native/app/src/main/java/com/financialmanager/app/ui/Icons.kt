@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.SwapHoriz
+import androidx.compose.material.icons.outlined.TrendingUp
 import androidx.compose.material.icons.outlined.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -71,6 +72,7 @@ object CategoryIcons {
         "DEBT" -> Icons.Outlined.AccountBalance
         "INSTALMENT" -> Icons.Outlined.CreditCard
         "SUBSCRIPTION" -> Icons.Outlined.Autorenew
+        "INCOME" -> Icons.Outlined.TrendingUp
         else -> Icons.Outlined.Bolt
     }
 

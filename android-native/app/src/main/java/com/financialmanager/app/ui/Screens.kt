@@ -151,12 +151,19 @@ fun DashboardScreen(
         // part of the month you cannot see coming in a list of what you spent.
         if (upcoming.isNotEmpty()) {
             item {
+                // Only the money leaving is totalled here. Netting income off
+                // against it would produce a figure that is neither what you
+                // owe nor what you will have.
+                val leaving = upcoming.filterNot { it.isIncome }
+                    .sumOf { it.commitment.amountMinor }
                 GroupLabel("Coming up", trailing = {
-                    Text(
-                        Money.format(upcoming.sumOf { it.commitment.amountMinor }, plan.currency),
-                        style = MoneyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (leaving > 0) {
+                        Text(
+                            "${Money.format(leaving, plan.currency)} out",
+                            style = MoneyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 })
                 InsetGroup {
                     upcoming.take(4).forEachIndexed { index, due ->
@@ -284,21 +291,34 @@ fun DashboardScreen(
 
 @Composable
 private fun UpcomingRow(due: Upcoming, onClick: () -> Unit) {
+    // A payment landing tomorrow is worth flagging; money arriving tomorrow is
+    // not, so only the outgoings go red as they approach.
+    val urgent = due.isImminent && !due.isIncome
+
     GroupRow(
         title = due.commitment.name,
         icon = CategoryIcons.forCommitment(due.commitment.kind.name),
-        iconTint = if (due.isImminent) negativeColour() else MaterialTheme.colorScheme.primary,
+        iconTint = when {
+            due.isIncome -> positiveColour()
+            urgent -> negativeColour()
+            else -> MaterialTheme.colorScheme.primary
+        },
         onClick = onClick,
         trailing = {
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    Money.format(due.commitment.amountMinor, due.commitment.currency),
+                    Money.format(
+                        due.commitment.amountMinor, due.commitment.currency,
+                        signed = due.isIncome,
+                    ),
                     style = MoneyMedium,
+                    color = if (due.isIncome) positiveColour()
+                    else MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.height(3.dp))
                 Pill(
                     due.whenText,
-                    if (due.isImminent) negativeColour() else MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (urgent) negativeColour() else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
@@ -930,16 +950,30 @@ private fun SafeToSpendHeadline(
         label = if (plan.isOverstretched) "Short by" else "Safe to spend",
         amountMinor = kotlin.math.abs(plan.safeToSpendMinor),
         currency = plan.currency,
-        caption = when {
-            plan.committedMinor == 0L ->
-                "Nothing committed yet — tap to add debts and regular payments."
-            plan.isOverstretched ->
-                "${Money.format(plan.stillToLeaveMinor, plan.currency)} still has to leave " +
-                    "this month, and there isn't enough for it."
-            else ->
-                "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for the " +
-                    "${plan.daysLeft} days left, after " +
-                    "${Money.format(plan.stillToLeaveMinor, plan.currency)} still to leave."
+        caption = buildString {
+            when {
+                plan.committedMinor == 0L && plan.expectedIncomeMinor == 0L ->
+                    append("Nothing committed yet — tap to add debts and regular payments.")
+                plan.isOverstretched ->
+                    append(
+                        "${Money.format(plan.stillToLeaveMinor, plan.currency)} still has to " +
+                            "leave this month, and there isn't enough for it."
+                    )
+                else ->
+                    append(
+                        "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for " +
+                            "the ${plan.daysLeft} days left, after " +
+                            "${Money.format(plan.stillToLeaveMinor, plan.currency)} still to leave."
+                    )
+            }
+            // Kept out of the figure above and said out loud instead, so it is
+            // clear it has not been counted.
+            if (plan.expectedIncomeMinor > 0) {
+                append(
+                    " ${Money.format(plan.expectedIncomeMinor, plan.currency)} is due in, " +
+                        "not counted above."
+                )
+            }
         },
         monthProgress = today.dayOfMonth.toFloat() / today.lengthOfMonth(),
         short = plan.isOverstretched,

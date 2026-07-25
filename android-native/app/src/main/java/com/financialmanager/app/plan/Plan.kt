@@ -26,6 +26,15 @@ data class MonthPlan(
     val stillToLeaveMinor: Long,
     val daysLeft: Int,
     val totalOwedMinor: Long,
+    /**
+     * Regular income still to arrive this month.
+     *
+     * Shown, never added to what is safe to spend. Money due on the 10th is not
+     * money you have on the 4th, and a figure that counts it would tell you to
+     * spend what has not turned up — which is exactly the mistake this app
+     * exists to stop. It belongs in the sentence under the number, not in it.
+     */
+    val expectedIncomeMinor: Long = 0,
 ) {
     /** The headline: spend this and you can still pay what you owe this month. */
     val safeToSpendMinor: Long get() = balanceMinor - stillToLeaveMinor
@@ -76,14 +85,22 @@ object Planner {
         today: LocalDate = LocalDate.now(),
     ): MonthPlan {
         val mine = commitments.filter { it.active && it.currency == currency }
-        val committed = mine.sumOf { it.amountMinor }
+        val outgoing = mine.filterNot { it.kind.isIncome }
+        val committed = outgoing.sumOf { it.amountMinor }
 
         // A payment whose day has passed has already come out of the balance, so
         // subtracting it again would double-count it. One with no known day is
         // treated as still to come, which errs toward caution.
-        val stillToLeave = mine.filterNot { it.alreadyDue(today) }.sumOf { it.amountMinor }
+        val stillToLeave = outgoing.filterNot { it.alreadyDue(today) }.sumOf { it.amountMinor }
+
+        // The mirror image: income whose day has passed is already in the
+        // balance. What is left is what is still to arrive.
+        val expectedIncome = mine
+            .filter { it.kind.isIncome && !it.alreadyDue(today) }
+            .sumOf { it.amountMinor }
 
         return MonthPlan(
+            expectedIncomeMinor = expectedIncome,
             currency = currency,
             balanceMinor = balanceMinor,
             incomeMinor = incomeMinor,
@@ -241,6 +258,9 @@ data class Upcoming(
         }
 
     val isImminent: Boolean get() = daysAway <= 3
+
+    /** Money arriving rather than leaving, which reads differently in a list. */
+    val isIncome: Boolean get() = commitment.kind.isIncome
 }
 
 enum class Severity { ALERT, WARNING, INFO, GOOD }

@@ -90,6 +90,13 @@ fun PlanScreen(model: AppViewModel, padding: PaddingValues) {
                 MoneyRow("Committed every month", plan.committedMinor, plan.currency)
                 Hairline()
                 MoneyRow("Still to leave this month", plan.stillToLeaveMinor, plan.currency)
+                if (plan.expectedIncomeMinor > 0) {
+                    Hairline()
+                    MoneyRow(
+                        "Still to come in", plan.expectedIncomeMinor, plan.currency,
+                        colour = positiveColour(),
+                    )
+                }
                 if (plan.totalOwedMinor > 0) {
                     Hairline()
                     MoneyRow(
@@ -342,10 +349,16 @@ private fun CommitmentRow(
         onClick = onClick,
         trailing = {
             Text(
-                Money.format(commitment.amountMinor, commitment.currency),
+                Money.format(
+                    commitment.amountMinor, commitment.currency,
+                    signed = commitment.kind.isIncome,
+                ),
                 style = MoneyMedium,
-                color = if (commitment.active) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = when {
+                    !commitment.active -> MaterialTheme.colorScheme.onSurfaceVariant
+                    commitment.kind.isIncome -> positiveColour()
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
             )
             Spacer(Modifier.width(6.dp))
             Switch(checked = commitment.active, onCheckedChange = onToggle)
@@ -454,7 +467,12 @@ private fun CommitmentEditor(
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { amount = it },
-                    label = { Text("Amount each month") },
+                    label = {
+                        Text(
+                            if (kind.isIncome) "Amount coming in each month"
+                            else "Amount each month"
+                        )
+                    },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
@@ -470,7 +488,12 @@ private fun CommitmentEditor(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "With a day, it shows up under Coming up before it leaves.",
+                    if (kind.isIncome) {
+                        "With a day, it shows under Coming up before it arrives. It is not " +
+                            "added to what's safe to spend until it does."
+                    } else {
+                        "With a day, it shows up under Coming up before it leaves."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

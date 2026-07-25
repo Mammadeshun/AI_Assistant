@@ -13,14 +13,29 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
 /**
- * What kind of money-out this is. They behave differently: a debt shrinks as you
- * pay it, a subscription runs until you cancel it.
+ * What kind of regular movement this is. They behave differently: a debt shrinks
+ * as you pay it, a subscription runs until you cancel it, and income arrives
+ * rather than leaves.
  */
-enum class CommitmentKind(val label: String, val icon: String) {
-    DEBT("Debt", "🏦"),
-    INSTALMENT("Instalment plan", "🧾"),
-    SUBSCRIPTION("Subscription", "🔁"),
-    BILL("Bill", "💡"),
+enum class CommitmentKind(val label: String) {
+    DEBT("Debt"),
+    INSTALMENT("Instalment plan"),
+    SUBSCRIPTION("Subscription"),
+    BILL("Bill"),
+
+    /**
+     * Money that comes in every month — a salary, an invoice you always send,
+     * a benefit payment.
+     *
+     * It lives in the same table as the outgoings because it is the same idea:
+     * something regular the statement cannot know about until it happens. It is
+     * kept out of every "committed" total, and it deliberately does not raise
+     * what is safe to spend — money due on the 10th is not money you have on
+     * the 4th. It shows up under Coming up so you can see it approaching.
+     */
+    INCOME("Income");
+
+    val isIncome: Boolean get() = this == INCOME
 }
 
 /**
@@ -99,13 +114,21 @@ interface CommitmentDao {
     @Query("SELECT * FROM commitments WHERE active = 1")
     suspend fun activeNow(): List<Commitment>
 
-    @Query("SELECT COALESCE(SUM(amountMinor), 0) FROM commitments WHERE active = 1 AND currency = :currency")
+    // Income lives in this table too, so anything totalling money out has to say
+    // so rather than summing the lot.
+    @Query(
+        """
+        SELECT COALESCE(SUM(amountMinor), 0) FROM commitments
+        WHERE active = 1 AND currency = :currency AND kind != 'INCOME'
+        """
+    )
     fun monthlyTotal(currency: String): Flow<Long>
 
     @Query(
         """
         SELECT COALESCE(SUM(remainingMinor), 0) FROM commitments
         WHERE active = 1 AND currency = :currency AND remainingMinor IS NOT NULL
+          AND kind != 'INCOME'
         """
     )
     fun totalOwed(currency: String): Flow<Long>
