@@ -5,6 +5,8 @@ Run with:  uvicorn backend.app.main:app --reload
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -22,15 +24,62 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
 
 
+def lan_address() -> str | None:
+    """This machine's address on the local network.
+
+    Printed at startup because it is the one thing the phone app needs and the
+    one thing that isn't obvious: "localhost" on a phone means the phone.
+    Opening a UDP socket to a public address is the portable way to ask the OS
+    which local interface it would route out of — no packet is actually sent.
+    """
+    import socket
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("8.8.8.8", 80))
+        return probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+
+
+def running_port() -> str:
+    """The port this process is actually serving on.
+
+    `--port` on the command line wins over the PORT variable, so read argv first
+    — printing an address the app isn't listening on would be worse than
+    printing nothing.
+    """
+    argv = sys.argv
+    for index, argument in enumerate(argv):
+        if argument == "--port" and index + 1 < len(argv):
+            return argv[index + 1]
+        if argument.startswith("--port="):
+            return argument.split("=", 1)[1]
+    return os.getenv("PORT", "8000")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
     settings = get_settings()
+    log = logging.getLogger(__name__)
+
     if not settings.encryption_key:
-        logging.getLogger(__name__).warning(
+        log.warning(
             "ENCRYPTION_KEY is not set — bank connections will fail until it is. "
             "Generate one with: python -m backend.app.security --new-key"
         )
+
+    port = running_port()
+    address = lan_address()
+    if address:
+        log.info("On this computer:      http://localhost:%s", port)
+        log.info("From your phone:       http://%s:%s   <- use this in the app", address, port)
+    else:
+        log.info("On this computer: http://localhost:%s", port)
+        log.info("Could not detect a network address — is this machine offline?")
     yield
 
 

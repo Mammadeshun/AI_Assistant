@@ -38,8 +38,23 @@ Grab `dist/financial-manager-release.apk` from this repo, copy it to your phone,
 and open it. Android will ask you to allow installing from this source — that's
 expected for an app that isn't from the Play Store.
 
-On first launch it asks for your server's address (for example
-`192.168.1.20:8000`). It checks the address responds before saving it.
+On first launch it asks for your server's address. **The server has to be
+running first** — the app is a client, it has no data of its own.
+
+Start the server (`./run.sh`) and it prints exactly what to type:
+
+```
+On this computer:      http://localhost:8000
+From your phone:       http://192.168.1.20:8000   <- use this in the app
+```
+
+Type that second address into the app, with or without `http://`. Don't use
+`localhost` — on a phone that means the phone itself.
+
+The phone and the computer must be on the same WiFi. To reach it from outside
+your home, put both on a VPN like [Tailscale](https://tailscale.com) and use the
+address it gives you. The app checks the address responds before saving it, so
+you'll know immediately if it can't get through.
 
 To build it yourself:
 
