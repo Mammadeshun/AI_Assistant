@@ -1,7 +1,12 @@
-# secrets & data — never commit these
+# secrets & data — never commit these.
+#
+# Anchored to the repository root. Unanchored, `data/` matched any directory of
+# that name at any depth — which silently kept the Android app's own `data`
+# package (the database, the DAOs) out of every commit, so CI compiled a source
+# tree with a hole in it while everything built on a desk.
 .env
-data/
-secrets/
+/data/
+/secrets/
 *.pem
 *.key
 *.db
