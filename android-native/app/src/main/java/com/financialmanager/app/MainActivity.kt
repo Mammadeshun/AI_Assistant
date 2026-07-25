@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Settings
@@ -38,6 +39,7 @@ import com.financialmanager.app.ui.AssistantScreen
 import com.financialmanager.app.ui.DashboardScreen
 import com.financialmanager.app.ui.FinancialManagerTheme
 import com.financialmanager.app.ui.ImportState
+import com.financialmanager.app.ui.PlanScreen
 import com.financialmanager.app.ui.SettingsScreen
 import com.financialmanager.app.ui.TransactionsScreen
 
@@ -56,6 +58,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val label: String, val icon: ImageVector) {
     Dashboard("Home", Icons.Default.PieChart),
     Transactions("Activity", Icons.Default.ReceiptLong),
+    Plan("Plan", Icons.Default.EventRepeat),
     Assistant("Ask", Icons.Default.AutoAwesome),
     Settings("Settings", Icons.Default.Settings),
 }
@@ -116,8 +119,9 @@ private fun App(model: AppViewModel = viewModel()) {
         },
     ) { padding ->
         when (tab) {
-            Tab.Dashboard -> DashboardScreen(model, padding, ::pickStatement)
+            Tab.Dashboard -> DashboardScreen(model, padding, ::pickStatement) { tab = Tab.Plan }
             Tab.Transactions -> TransactionsScreen(model, padding)
+            Tab.Plan -> PlanScreen(model, padding)
             Tab.Assistant -> AssistantScreen(model, padding) { tab = Tab.Settings }
             Tab.Settings -> SettingsScreen(model, padding, ::pickStatement)
         }

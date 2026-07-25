@@ -1,5 +1,6 @@
 package com.financialmanager.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -72,10 +73,18 @@ private val CATEGORY_ICONS: Map<String, String> =
 /* Dashboard                                                           */
 /* ------------------------------------------------------------------ */
 @Composable
-fun DashboardScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> Unit) {
+fun DashboardScreen(
+    model: AppViewModel,
+    padding: PaddingValues,
+    onImport: () -> Unit,
+    onOpenPlan: () -> Unit,
+) {
     val dashboard by model.dashboard.collectAsStateWithLifecycle()
     val month by model.month.collectAsStateWithLifecycle()
     val count by model.transactionCount.collectAsStateWithLifecycle()
+    val plan by model.plan.collectAsStateWithLifecycle()
+    val commitments by model.commitments.collectAsStateWithLifecycle()
+    val observations by model.observations.collectAsStateWithLifecycle()
 
     if (count == 0) {
         EmptyState(padding, onImport)
@@ -92,6 +101,21 @@ fun DashboardScreen(model: AppViewModel, padding: PaddingValues, onImport: () ->
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { MonthPicker(month) { model.stepMonth(it) } }
+
+        // The headline is what is left after what is promised, not the balance.
+        item { SafeToSpendHeadline(plan, onOpenPlan) }
+
+        if (commitments.isEmpty()) {
+            item { RecordDebtsPrompt(onOpenPlan) }
+        }
+
+        if (observations.isNotEmpty()) {
+            item {
+                SectionCard("What stands out") {
+                    observations.take(4).forEach { note -> ObservationRow(note) }
+                }
+            }
+        }
 
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -687,5 +711,107 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
                 TextButton(onClick = { confirmingDelete = false }) { Text("Keep it") }
             },
         )
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard pieces that depend on the plan                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The number the app is really about. A balance flatters you; this doesn't.
+ */
+@Composable
+private fun SafeToSpendHeadline(
+    plan: com.financialmanager.app.plan.MonthPlan,
+    onOpenPlan: () -> Unit,
+) {
+    val short = plan.isOverstretched
+    val container = if (short) MaterialTheme.colorScheme.errorContainer
+    else MaterialTheme.colorScheme.primaryContainer
+    val onContainer = if (short) MaterialTheme.colorScheme.onErrorContainer
+    else MaterialTheme.colorScheme.onPrimaryContainer
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(container)
+            .clickable(onClick = onOpenPlan)
+            .padding(20.dp),
+    ) {
+        Text(
+            if (short) "SHORT BY" else "SAFE TO SPEND",
+            style = MaterialTheme.typography.labelMedium,
+            color = onContainer,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            Money.format(kotlin.math.abs(plan.safeToSpendMinor), plan.currency),
+            style = MoneyLarge,
+            color = onContainer,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            if (plan.committedMinor == 0L) {
+                "Nothing committed yet — tap to add debts and regular payments."
+            } else if (short) {
+                "${Money.format(plan.stillToLeaveMinor, plan.currency)} still has to leave " +
+                    "this month, and there isn't enough for it."
+            } else {
+                "${Money.format(plan.dailyAllowanceMinor, plan.currency)} a day for " +
+                    "${plan.daysLeft} days, after the " +
+                    "${Money.format(plan.stillToLeaveMinor, plan.currency)} still to leave."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = onContainer,
+        )
+    }
+}
+
+/** Asks the question a statement can never answer for you. */
+@Composable
+private fun RecordDebtsPrompt(onOpenPlan: () -> Unit) {
+    SectionCard("Do you have debts or instalments?") {
+        Text(
+            "Loans, card repayments, buy-now-pay-later, rent, subscriptions — none of it " +
+                "shows up until it takes the money. Record it once and the figure above " +
+                "knows about it from then on.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onOpenPlan) { Text("Set this up") }
+    }
+}
+
+@Composable
+private fun ObservationRow(note: com.financialmanager.app.plan.Observation) {
+    val colour = when (note.severity) {
+        com.financialmanager.app.plan.Severity.ALERT -> negativeColour()
+        com.financialmanager.app.plan.Severity.WARNING -> MaterialTheme.colorScheme.tertiary
+        com.financialmanager.app.plan.Severity.GOOD -> positiveColour()
+        com.financialmanager.app.plan.Severity.INFO -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val icon = when (note.severity) {
+        com.financialmanager.app.plan.Severity.ALERT -> "🚨"
+        com.financialmanager.app.plan.Severity.WARNING -> "⚠️"
+        com.financialmanager.app.plan.Severity.GOOD -> "✅"
+        com.financialmanager.app.plan.Severity.INFO -> "💡"
+    }
+
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(icon)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(note.title, style = MaterialTheme.typography.bodyMedium, color = colour)
+            if (note.detail.isNotBlank()) {
+                Text(
+                    note.detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }

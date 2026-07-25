@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.financialmanager.app.data.CommitmentDao
 import com.financialmanager.app.data.TransactionDao
 import com.financialmanager.app.money.Money
+import com.financialmanager.app.plan.Planner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -122,7 +124,10 @@ enum class Provider(val label: String, val keyHint: String, val console: String)
  * keeps it to one request per question, and means only totals and merchant names
  * ever leave the device — never a full transaction history.
  */
-class Assistant(private val dao: TransactionDao) {
+class Assistant(
+    private val dao: TransactionDao,
+    private val commitmentDao: CommitmentDao,
+) {
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -273,18 +278,59 @@ class Assistant(private val dao: TransactionDao) {
         val earliest = dao.earliest()
         val latest = dao.latest()
 
+        // What the user has already promised to pay. Without this the assistant
+        // will happily tell someone they can afford something they cannot.
+        val commitments = commitmentDao.activeNow().filter { it.currency == currency }
+        val plan = Planner.monthPlan(
+            currency = currency,
+            balanceMinor = dao.balance(currency).firstValue(),
+            incomeMinor = dao.incomeBetween(currency, thisMonth, endOf(thisMonth)).firstValue(),
+            spentMinor = dao.spendBetween(currency, thisMonth, endOf(thisMonth)).firstValue(),
+            commitments = commitments,
+            totalOwedMinor = commitmentDao.totalOwed(currency).firstValue(),
+        )
+
         return buildString {
             appendLine("The figures below are the user's real ones. Currency: $currency.")
             appendLine("History covers $earliest to $latest.")
+            appendLine("Balance now: ${fmt(plan.balanceMinor, currency)}")
             appendLine("This month (${thisMonth.month}):")
             append(window(thisMonth))
             appendLine("Last month (${lastMonth.month}):")
             append(window(lastMonth))
             if (merchants.isNotEmpty()) appendLine("Biggest merchants this month: $merchants")
+
+            if (commitments.isEmpty()) {
+                appendLine(
+                    "The user has recorded no debts, loans or regular commitments. If they " +
+                        "ask about affording something, say that this is missing rather " +
+                        "than assuming there is nothing."
+                )
+            } else {
+                appendLine("Committed every month, already promised:")
+                commitments.forEach { c ->
+                    append("  ${c.name} (${c.kind.label}) ${fmt(c.amountMinor, currency)}")
+                    c.dayOfMonth?.let { append(", taken on day $it") }
+                    c.monthsRemaining?.let { append(", $it payments left") }
+                    appendLine()
+                }
+                appendLine("  total ${fmt(plan.committedMinor, currency)} a month")
+                if (plan.totalOwedMinor > 0) {
+                    appendLine("  still owed overall: ${fmt(plan.totalOwedMinor, currency)}")
+                }
+            }
+
+            appendLine(
+                "Safe to spend right now — balance minus what is still due to leave this " +
+                    "month — is ${fmt(plan.safeToSpendMinor, currency)}, over " +
+                    "${plan.daysLeft} remaining days."
+            )
         }
     }
 
     private fun fmt(minor: Long, currency: String) = Money.format(minor, currency)
+
+    private fun endOf(month: LocalDate) = month.plusMonths(1).minusDays(1)
 
     private fun friendlyError(provider: Provider, code: Int, payload: String): String {
         val detail = runCatching {
@@ -320,8 +366,13 @@ class Assistant(private val dao: TransactionDao) {
             say so plainly rather than estimating — a made-up number is worse
             than "I can't tell from this".
 
+            When they ask whether they can afford something, work from what is
+            safe to spend rather than the balance, and say what you subtracted.
+            When they ask about debts or paying something off, use the payments
+            and the amounts still owed, and be straight about how long it takes.
+
             Be brief and concrete. Use the amounts you were given, keep the
-            currency they are in, and skip the preamble.
+            currency they are in, and skip the preamble. No pep talks.
         """.trimIndent()
     }
 }

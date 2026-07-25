@@ -11,6 +11,7 @@ import com.financialmanager.app.ui.AppViewModel
 import com.financialmanager.app.ui.AssistantScreen
 import com.financialmanager.app.ui.DashboardScreen
 import com.financialmanager.app.ui.FinancialManagerTheme
+import com.financialmanager.app.ui.PlanScreen
 import com.financialmanager.app.ui.SettingsScreen
 import com.financialmanager.app.ui.TransactionsScreen
 import org.junit.Rule
@@ -41,11 +42,33 @@ class ScreensRenderTest {
     fun `dashboard opens and asks for a statement when empty`() {
         compose.setContent {
             FinancialManagerTheme {
-                DashboardScreen(model(), PaddingValues(0.dp()), onImport = {})
+                DashboardScreen(model(), PaddingValues(0.dp()), onImport = {}, onOpenPlan = {})
             }
         }
         compose.onNodeWithText("Nothing here yet").assertIsDisplayed()
         compose.onNodeWithText("Import a statement").assertIsDisplayed()
+    }
+
+    @Test
+    fun `plan screen opens and asks about debts`() {
+        compose.setContent {
+            FinancialManagerTheme {
+                PlanScreen(model(), PaddingValues(0.dp()))
+            }
+        }
+        compose.onNodeWithText("SAFE TO SPEND").assertIsDisplayed()
+        compose.onNodeWithText("Monthly commitments").assertIsDisplayed()
+    }
+
+    @Test
+    fun `dashboard renders with the plan headline`() {
+        compose.setContent {
+            FinancialManagerTheme {
+                DashboardScreen(model(), PaddingValues(0.dp()), onImport = {}, onOpenPlan = {})
+            }
+        }
+        // With no transactions it is still the empty state that shows.
+        compose.onNodeWithText("Nothing here yet").assertIsDisplayed()
     }
 
     @Test

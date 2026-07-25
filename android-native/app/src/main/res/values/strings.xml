@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Finances</string>
+    <string name="widget_description">What is left to spend this month, after what is already promised.</string>
 </resources>
