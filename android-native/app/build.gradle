@@ -95,4 +95,7 @@ tasks.withType(Test).configureEach {
     if (project.hasProperty("statementLines")) {
         systemProperty "statement.lines", project.property("statementLines")
     }
+    if (project.hasProperty("statementXlsx")) {
+        systemProperty "statement.xlsx", project.property("statementXlsx")
+    }
 }

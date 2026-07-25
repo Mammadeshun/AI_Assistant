@@ -77,7 +77,10 @@ private fun App(model: AppViewModel = viewModel()) {
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(model::importStatement) }
 
-    fun pickStatement() = picker.launch(arrayOf("application/pdf", "text/csv", "text/comma-separated-values", "*/*"))
+    // Everything, rather than a list of MIME types. Some file providers hide
+    // files whose declared type does not match the filter, and the format is
+    // worked out from the file's own bytes anyway.
+    fun pickStatement() = picker.launch(arrayOf("*/*"))
 
     LaunchedEffect(importState) {
         when (val state = importState) {

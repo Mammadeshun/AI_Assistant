@@ -8,6 +8,7 @@ import com.financialmanager.app.ai.Assistant
 import com.financialmanager.app.ai.ChatMessage
 import com.financialmanager.app.ai.Provider
 import com.financialmanager.app.ai.Secrets
+import com.financialmanager.app.categorise.Categoriser
 import com.financialmanager.app.data.Budget
 import com.financialmanager.app.data.CategoryTotal
 import com.financialmanager.app.data.Commitment
@@ -18,6 +19,7 @@ import com.financialmanager.app.data.RecurringDetector
 import com.financialmanager.app.data.MerchantTotal
 import com.financialmanager.app.data.MonthTotal
 import com.financialmanager.app.data.TransactionRow
+import com.financialmanager.app.money.Money
 import com.financialmanager.app.plan.BudgetProgress
 import com.financialmanager.app.plan.MonthPlan
 import com.financialmanager.app.plan.Observation
@@ -231,6 +233,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun importStatement(uri: Uri) {
         viewModelScope.launch {
             _importState.value = ImportState.Working
+            _lastImportError.value = null
             _importState.value = try {
                 val result = StatementImporter(getApplication()).import(uri)
                 dao.currencies().firstOrNull()?.let { _currency.value = it }
@@ -238,13 +241,56 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 dao.latest()?.let { _month.value = it.withDayOfMonth(1) }
                 refreshDerived()
                 ImportState.Done(result)
-            } catch (error: Exception) {
-                ImportState.Failed(error.message ?: "That statement could not be read.")
+            } catch (error: Throwable) {
+                // Throwable rather than Exception on purpose: an OutOfMemoryError
+                // is an Error, and catching only Exception let the import die
+                // silently with nothing on screen.
+                val message = error.message
+                    ?: "${error.javaClass.simpleName} while reading that file."
+                _lastImportError.value = message
+                ImportState.Failed(message)
             }
         }
     }
 
     fun clearImportState() { _importState.value = ImportState.Idle }
+
+    /** A transaction typed in by hand, for when there is no file to import. */
+    fun addManualTransaction(entry: ManualEntry) {
+        viewModelScope.launch {
+            val minor = Money.toMinor(entry.amount, entry.currency)
+                .let { if (entry.spending) -it else it }
+            val verdict = Categoriser.categorise(entry.merchant, entry.merchant, minor)
+            dao.insertAll(
+                listOf(
+                    TransactionRow(
+                        // Time-stamped so two identical entries stay distinct.
+                        externalId = "manual:${System.currentTimeMillis()}",
+                        bookedAt = entry.date,
+                        amountMinor = minor,
+                        currency = entry.currency,
+                        description = entry.merchant,
+                        merchant = entry.merchant,
+                        category = verdict.category,
+                        isTransfer = verdict.isTransfer,
+                    )
+                )
+            )
+            _currency.value = entry.currency
+            refreshDerived()
+        }
+    }
+
+    /**
+     * The last import failure, kept until dismissed.
+     *
+     * A snackbar disappears in four seconds, which is no use when the message is
+     * the only clue about why a statement would not read.
+     */
+    private val _lastImportError = MutableStateFlow<String?>(null)
+    val lastImportError: StateFlow<String?> = _lastImportError.asStateFlow()
+
+    fun dismissImportError() { _lastImportError.value = null }
 
     /* --- commitments ------------------------------------------------- */
 

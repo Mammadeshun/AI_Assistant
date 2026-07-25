@@ -85,9 +85,24 @@ fun DashboardScreen(
     val plan by model.plan.collectAsStateWithLifecycle()
     val commitments by model.commitments.collectAsStateWithLifecycle()
     val observations by model.observations.collectAsStateWithLifecycle()
+    val importError by model.lastImportError.collectAsStateWithLifecycle()
+    var addingManually by remember { mutableStateOf(false) }
 
     if (count == 0) {
-        EmptyState(padding, onImport)
+        EmptyState(
+            padding = padding,
+            onImport = onImport,
+            error = importError,
+            onDismissError = model::dismissImportError,
+            onAddManually = { addingManually = true },
+        )
+        if (addingManually) {
+            ManualTransactionDialog(
+                currency = plan.currency,
+                onDismiss = { addingManually = false },
+                onSave = { model.addManualTransaction(it); addingManually = false },
+            )
+        }
         return
     }
 
@@ -243,12 +258,18 @@ private fun shortMonth(key: String): String {
 }
 
 @Composable
-private fun EmptyState(padding: PaddingValues, onImport: () -> Unit) {
+private fun EmptyState(
+    padding: PaddingValues,
+    onImport: () -> Unit,
+    error: String? = null,
+    onDismissError: () -> Unit = {},
+    onAddManually: () -> Unit = {},
+) {
     Column(
         Modifier
             .fillMaxSize()
             .padding(padding)
-            .padding(32.dp),
+            .padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -257,14 +278,45 @@ private fun EmptyState(padding: PaddingValues, onImport: () -> Unit) {
         Text("Nothing here yet", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Import a statement from your Revolut app — the PDF it sends you, or a " +
-                "CSV export. It is read on this phone and stays on it.",
+            "Import a statement from your bank app — the PDF it sends you, or a CSV " +
+                "export. It is read on this phone and stays on it.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
+
+        if (error != null) {
+            Spacer(Modifier.height(20.dp))
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Text(
+                        "That import didn't work",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    // The exact message, because it is the only clue about what
+                    // went wrong and it should not vanish after four seconds.
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onDismissError) { Text("Dismiss") }
+                }
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
         Button(onClick = onImport) { Text("Import a statement") }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onAddManually) { Text("Or add a transaction by hand") }
     }
 }
 
@@ -581,8 +633,11 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
     val hasKey by model.apiKeySet.collectAsStateWithLifecycle()
     val provider by model.provider.collectAsStateWithLifecycle()
     val count by model.transactionCount.collectAsStateWithLifecycle()
+    val importError by model.lastImportError.collectAsStateWithLifecycle()
+    val currency by model.currency.collectAsStateWithLifecycle()
     var keyDraft by remember { mutableStateOf("") }
     var chosenProvider by remember { mutableStateOf(provider) }
+    var addingManually by remember { mutableStateOf(false) }
     var confirmingDelete by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -601,8 +656,19 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (importError != null) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Last import: $importError",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = onImport) { Text("Import a statement") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onImport) { Text("Import") }
+                    OutlinedButton(onClick = { addingManually = true }) { Text("Add by hand") }
+                }
             }
         }
 
@@ -689,6 +755,14 @@ fun SettingsScreen(model: AppViewModel, padding: PaddingValues, onImport: () -> 
                 }
             }
         }
+    }
+
+    if (addingManually) {
+        ManualTransactionDialog(
+            currency = currency,
+            onDismiss = { addingManually = false },
+            onSave = { model.addManualTransaction(it); addingManually = false },
+        )
     }
 
     if (confirmingDelete) {
@@ -815,3 +889,103 @@ private fun ObservationRow(note: com.financialmanager.app.plan.Observation) {
         }
     }
 }
+
+/**
+ * Adds one transaction by hand.
+ *
+ * A way in that does not depend on a file parsing correctly. If the importer
+ * ever refuses a statement, the app is still usable rather than an empty shell.
+ */
+@Composable
+fun ManualTransactionDialog(
+    currency: String,
+    onDismiss: () -> Unit,
+    onSave: (ManualEntry) -> Unit,
+) {
+    var merchant by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var spending by remember { mutableStateOf(true) }
+    var date by remember { mutableStateOf(LocalDate.now()) }
+
+    val parsed = amount.trim().replace(",", ".").toBigDecimalOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add a transaction") },
+        text = {
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = spending,
+                        onClick = { spending = true },
+                        label = { Text("Money out") },
+                    )
+                    FilterChip(
+                        selected = !spending,
+                        onClick = { spending = false },
+                        label = { Text("Money in") },
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = merchant,
+                    onValueChange = { merchant = it },
+                    label = { Text("Merchant or description") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = amount,
+                    onValueChange = { amount = it },
+                    label = { Text("Amount ($currency)") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = { date = date.minusDays(1) }) { Text("−1 day") }
+                    Text(
+                        dayHeading(date),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(
+                        onClick = { date = date.plusDays(1) },
+                        enabled = date < LocalDate.now(),
+                    ) { Text("+1 day") }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = merchant.isNotBlank() && parsed != null && parsed.signum() > 0,
+                onClick = {
+                    val value = parsed ?: return@TextButton
+                    onSave(
+                        ManualEntry(
+                            merchant = merchant.trim(),
+                            amount = value,
+                            spending = spending,
+                            date = date,
+                            currency = currency,
+                        )
+                    )
+                },
+            ) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+data class ManualEntry(
+    val merchant: String,
+    val amount: java.math.BigDecimal,
+    val spending: Boolean,
+    val date: LocalDate,
+    val currency: String,
+)
