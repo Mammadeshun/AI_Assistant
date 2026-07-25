@@ -21,7 +21,7 @@ from ..config import Settings, get_settings
 from ..models import Account, Category, Transaction, User
 from ..providers.base import from_minor
 from ..services import analytics as svc
-from .ai import AIError, beta_kwargs, friendly_error, get_client, text_of
+from .ai import AIError, call_with_fallback_retry, friendly_error, get_client, text_of
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +398,6 @@ def chat(
             tools=tools,
             messages=history,
             max_iterations=MAX_TOOL_ITERATIONS,
-            output_config={"effort": settings.ai_effort},
             **extra,
         )
 
@@ -436,17 +435,8 @@ def chat(
 
 
 def call_with_runner_retry(make_request, settings: Settings):
-    """Same fallback-beta retry as elsewhere, for the tool runner."""
-    import anthropic
-
-    try:
-        return make_request(beta_kwargs(settings))
-    except anthropic.BadRequestError as exc:
-        message = str(exc).lower()
-        if "fallback" not in message and "beta" not in message:
-            raise
-        logger.warning("Server-side fallback rejected by tool runner, retrying without it")
-        return make_request({})
+    """The tool runner takes the same model-dependent parameters as any request."""
+    return call_with_fallback_retry(make_request, settings)
 
 
 def serialise_history(messages: list[Any]) -> str:

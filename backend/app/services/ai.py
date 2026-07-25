@@ -56,29 +56,81 @@ def get_client(settings: Settings | None = None):
     return anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=120.0)
 
 
+# Models that reject `output_config.effort`. Haiku and the 4.5-era Sonnet never
+# had the parameter, and the older Opus releases predate it. Anything not listed
+# is assumed to support it, so a newer model works without a code change.
+MODELS_WITHOUT_EFFORT = {
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-0",
+    "claude-opus-4-1",
+    "claude-opus-4-0",
+}
+
+# Server-side refusal fallback only applies to the models whose safety
+# classifiers can decline a request. Sending it elsewhere is rejected.
+MODELS_WITH_FALLBACK_PREFIXES = ("claude-opus-5", "claude-fable-", "claude-mythos-")
+
+
+def supports_effort(model: str) -> bool:
+    return not model.startswith("claude-haiku") and model not in MODELS_WITHOUT_EFFORT
+
+
+def supports_server_side_fallback(model: str) -> bool:
+    return any(model.startswith(prefix) for prefix in MODELS_WITH_FALLBACK_PREFIXES)
+
+
+def effort_kwargs(settings: Settings, effort: str | None = None) -> dict[str, Any]:
+    """Effort setting, omitted entirely on models that would 400 on it."""
+    if not supports_effort(settings.ai_model):
+        return {}
+    return {"output_config": {"effort": effort or settings.ai_effort}}
+
+
 def beta_kwargs(settings: Settings) -> dict[str, Any]:
     """Server-side refusal fallback, so a declined request still gets answered."""
     if not settings.ai_server_side_fallback:
         return {}
+    if not supports_server_side_fallback(settings.ai_model):
+        return {}
     return {"betas": [FALLBACK_BETA], "fallbacks": "default"}
 
 
-def call_with_fallback_retry(make_request, settings: Settings):
-    """Run a request, retrying once without the fallback beta if it is rejected.
+def request_kwargs(settings: Settings, effort: str | None = None) -> dict[str, Any]:
+    """Everything model-dependent about a request, in one place."""
+    return {**effort_kwargs(settings, effort), **beta_kwargs(settings)}
 
-    Keeps the app working against an API deployment that does not yet accept the
-    parameter, rather than failing the user's request over an optimisation.
+
+def call_with_fallback_retry(make_request, settings: Settings, effort: str | None = None):
+    """Run a request, shedding optional parameters if the API rejects them.
+
+    The capability tables above should prevent this, but a model whose support
+    differs from what we assume shouldn't cost the user their question — so a
+    rejected optional parameter is dropped and the request retried once.
     """
     import anthropic
 
-    try:
-        return make_request(beta_kwargs(settings))
-    except anthropic.BadRequestError as exc:
-        message = str(exc).lower()
-        if "fallback" not in message and "beta" not in message:
-            raise
-        logger.warning("Server-side fallback rejected, retrying without it: %s", exc)
-        return make_request({})
+    attempts = [request_kwargs(settings, effort)]
+    without_fallback = effort_kwargs(settings, effort)
+    if without_fallback != attempts[0]:
+        attempts.append(without_fallback)
+    if without_fallback:
+        attempts.append({})
+
+    last_error: Exception | None = None
+    for index, extra in enumerate(attempts):
+        try:
+            return make_request(extra)
+        except anthropic.BadRequestError as exc:
+            message = str(exc).lower()
+            optional_rejected = any(
+                token in message
+                for token in ("fallback", "beta", "effort", "output_config")
+            )
+            if not optional_rejected or index == len(attempts) - 1:
+                raise
+            logger.warning("Optional parameter rejected, retrying without it: %s", exc)
+            last_error = exc
+    raise last_error if last_error else RuntimeError("unreachable")
 
 
 def friendly_error(exc: Exception) -> AIError:
@@ -229,13 +281,14 @@ def categorise_uncategorised(
             max_tokens=16000,
             system=CATEGORISE_SYSTEM,
             output_format=MerchantVerdicts,
-            output_config={"effort": settings.ai_categorise_effort},
             messages=[{"role": "user", "content": prompt}],
             **extra,
         )
 
     try:
-        response = call_with_fallback_retry(make_request, settings)
+        response = call_with_fallback_retry(
+            make_request, settings, effort=settings.ai_categorise_effort
+        )
     except AIUnavailable:
         raise
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as a 502
@@ -387,7 +440,6 @@ def monthly_briefing(
             model=settings.ai_model,
             max_tokens=16000,
             system=INSIGHT_SYSTEM,
-            output_config={"effort": settings.ai_effort},
             messages=[{"role": "user", "content": "\n".join(lines)}],
             **extra,
         )

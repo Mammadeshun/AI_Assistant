@@ -109,18 +109,42 @@ def test_text_of_reads_normal_responses():
     assert ai_service.text_of(fake_response(text="You spent £42.50.")) == "You spent £42.50."
 
 
-def test_fallback_beta_is_requested_by_default():
+def test_effort_is_omitted_on_models_that_reject_it():
+    """Haiku 4.5 has no effort parameter — sending one is a 400."""
+    assert ai_service.supports_effort("claude-opus-5") is True
+    assert ai_service.supports_effort("claude-sonnet-5") is True
+    assert ai_service.supports_effort("claude-haiku-4-5") is False
+    assert ai_service.supports_effort("claude-sonnet-4-5") is False
+    # An unrecognised (newer) model is assumed to support it.
+    assert ai_service.supports_effort("claude-opus-9") is True
+
+
+def test_default_model_request_carries_no_effort(monkeypatch):
     settings = get_settings()
-    kwargs = ai_service.beta_kwargs(settings)
+    assert settings.ai_model == "claude-haiku-4-5"  # the shipped default
+    assert ai_service.request_kwargs(settings) == {}
+
+
+def test_opus_request_carries_effort_and_fallback(monkeypatch):
+    settings = get_settings().model_copy(update={"ai_model": "claude-opus-5"})
+    kwargs = ai_service.request_kwargs(settings)
+    assert kwargs["output_config"] == {"effort": settings.ai_effort}
     assert kwargs["fallbacks"] == "default"
     assert ai_service.FALLBACK_BETA in kwargs["betas"]
 
 
-def test_fallback_rejection_retries_without_the_beta():
-    """An API that doesn't know the parameter must not break the feature."""
+def test_fallback_is_only_sent_to_models_that_accept_it():
+    assert ai_service.supports_server_side_fallback("claude-opus-5") is True
+    assert ai_service.supports_server_side_fallback("claude-fable-5") is True
+    assert ai_service.supports_server_side_fallback("claude-haiku-4-5") is False
+    assert ai_service.supports_server_side_fallback("claude-sonnet-5") is False
+
+
+def test_rejected_optional_parameter_retries_without_it():
+    """A model whose support differs from ours must not cost the user a question."""
     import anthropic
 
-    settings = get_settings()
+    settings = get_settings().model_copy(update={"ai_model": "claude-opus-5"})
     attempts = []
 
     def make_request(extra):
@@ -134,8 +158,8 @@ def test_fallback_rejection_retries_without_the_beta():
         return "ok"
 
     assert ai_service.call_with_fallback_retry(make_request, settings) == "ok"
-    assert len(attempts) == 2
-    assert attempts[0] and attempts[1] == {}
+    assert len(attempts) > 1
+    assert attempts[0] != {} and attempts[-1] == {}
 
 
 def test_unrelated_bad_request_is_not_retried():
@@ -446,6 +470,27 @@ def test_chat_records_tool_calls_and_returns_the_reply(db, user_obj, monkeypatch
     sent = client.beta.messages.tool_runner.call_args.kwargs
     assert sent["model"] == get_settings().ai_model
     assert sent["max_iterations"] == ai_agent.MAX_TOOL_ITERATIONS
+    # Default model is Haiku, which rejects both optional parameters.
+    assert "output_config" not in sent
+    assert "fallbacks" not in sent
+
+
+def test_chat_on_opus_sends_effort_and_fallback(db, user_obj, monkeypatch):
+    message = SimpleNamespace(
+        content=[SimpleNamespace(type="text", text="ok")],
+        stop_reason="end_turn",
+        usage=SimpleNamespace(input_tokens=10, output_tokens=5),
+    )
+    client = MagicMock()
+    client.beta.messages.tool_runner.return_value = iter([message])
+    monkeypatch.setattr(ai_agent, "get_client", lambda settings=None: client)
+
+    settings = get_settings().model_copy(update={"ai_model": "claude-opus-5"})
+    ai_agent.chat(db, user_obj, [{"role": "user", "content": "hi"}], settings)
+
+    sent = client.beta.messages.tool_runner.call_args.kwargs
+    assert sent["model"] == "claude-opus-5"
+    assert sent["output_config"] == {"effort": settings.ai_effort}
     assert sent["fallbacks"] == "default"
 
 

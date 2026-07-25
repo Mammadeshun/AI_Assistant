@@ -56,7 +56,11 @@ class Settings(BaseSettings):
     # Leave the key blank to keep every AI feature switched off. Nothing is sent
     # anywhere until this is set.
     anthropic_api_key: str = ""
-    ai_model: str = "claude-opus-5"
+    # Haiku 4.5 by default: cheapest model that handles this work well, and it
+    # keeps a small amount of API credit going a long way. Set AI_MODEL to
+    # claude-opus-5 for noticeably sharper answers on vague questions.
+    ai_model: str = "claude-haiku-4-5"
+    # Effort is ignored on models that don't support it (Haiku among them).
     ai_effort: str = "medium"            # chat and written insights
     ai_categorise_effort: str = "low"    # merchant classification is simple work
     ai_server_side_fallback: bool = True

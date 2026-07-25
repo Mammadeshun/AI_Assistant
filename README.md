@@ -180,8 +180,20 @@ Never your account numbers, IBANs, credentials, or who you are. Nothing is sent
 at all until you set an API key — and if you never set one, every other feature
 in this app works exactly as before.
 
-Model and effort are configurable (`AI_MODEL`, `AI_EFFORT`). The default is
-Claude Opus 5 at medium effort.
+### Which model
+
+The default is **Claude Haiku 4.5** — the cheapest model that handles this work
+well, chosen so a small amount of API credit lasts a long time. Merchant
+categorisation and straightforward questions ("what did I spend on groceries in
+March") are well within it.
+
+Set `AI_MODEL=claude-opus-5` in `.env` for sharper answers on vague or
+multi-step questions, at roughly five times the cost.
+
+Requests adapt to the model automatically: `AI_EFFORT` and the server-side
+refusal fallback are only sent to models that accept them, because Haiku
+rejects both outright. Switching models is a one-line change with nothing else
+to adjust.
 
 ## How categorisation works
 
