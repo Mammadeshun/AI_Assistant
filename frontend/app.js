@@ -256,7 +256,7 @@ const views = {
         <div class="card">
           <div class="stat-label">Balance</div>
           <div class="stat-value">${balances}</div>
-          <div class="stat-note">${netWorth.account_count} account(s)</div>
+          <div class="stat-note">${netWorth.account_count} ${netWorth.account_count === 1 ? "account" : "accounts"}</div>
         </div>
         <div class="card">
           <div class="stat-label">In this month</div>
@@ -405,20 +405,23 @@ const views = {
   /* --- transactions ------------------------------------------------ */
   async transactions(root) {
     root.innerHTML = `
-      <div class="filters">
-        <label class="field" style="min-width:14rem"><span>Search</span>
-          <input type="search" id="f-search" placeholder="Merchant, description, reference" /></label>
-        <label class="field"><span>Account</span><select id="f-account"></select></label>
-        <label class="field"><span>Category</span><select id="f-category"></select></label>
-        <label class="field"><span>Direction</span>
-          <select id="f-direction">
-            <option value="">All</option><option value="out">Money out</option><option value="in">Money in</option>
-          </select></label>
-        <button class="btn btn-sm" id="f-clear">Clear</button>
-        <a class="btn btn-sm" href="/api/transactions/export" download>Export CSV</a>
+      <div class="filters" id="filters">
+        <label class="field filter-search"><span class="sr-only">Search</span>
+          <input type="search" id="f-search" placeholder="Search transactions" /></label>
+        <button class="btn btn-sm filter-toggle" id="f-toggle" aria-expanded="false">Filters</button>
+        <div class="filter-more">
+          <label class="field"><span>Account</span><select id="f-account"></select></label>
+          <label class="field"><span>Category</span><select id="f-category"></select></label>
+          <label class="field"><span>Direction</span>
+            <select id="f-direction">
+              <option value="">All</option><option value="out">Money out</option><option value="in">Money in</option>
+            </select></label>
+          <button class="btn btn-sm" id="f-clear">Clear</button>
+          <a class="btn btn-sm" href="/api/transactions/export" download>Export CSV</a>
+        </div>
       </div>
-      <div class="card" style="padding:0">
-        <div id="tx-table" class="table-wrap"><p class="empty">Loading…</p></div>
+      <div class="card">
+        <div id="tx-list"><p class="empty">Loading…</p></div>
       </div>
       <div class="row-between" style="margin-top:.9rem">
         <span class="small muted" id="tx-count"></span>
@@ -449,6 +452,14 @@ const views = {
     root.querySelector("#f-search").addEventListener("input", reload);
     ["#f-account", "#f-category", "#f-direction"].forEach((selector) =>
       root.querySelector(selector).addEventListener("change", reload));
+
+    // On a phone the filter row is taller than the results it filters, so it
+    // stays folded until asked for. Wide screens show it and hide the toggle.
+    const toggle = root.querySelector("#f-toggle");
+    toggle.addEventListener("click", () => {
+      const open = root.querySelector("#filters").classList.toggle("open");
+      toggle.setAttribute("aria-expanded", String(open));
+    });
     root.querySelector("#f-clear").addEventListener("click", () => {
       state.txFilters = { search: "", account_id: "", category_id: "", direction: "", offset: 0, limit: 50 };
       render();
@@ -621,7 +632,7 @@ const views = {
                 </div>
                 <span class="inline">
                   <span class="num">${money(account.balance_minor, account.currency)}</span>
-                  <button class="btn btn-sm" data-import="${account.id}">Import CSV</button>
+                  <button class="btn btn-sm" data-import="${account.id}">Import</button>
                 </span>
               </div>`).join("")
             : `<p class="empty">No accounts yet.</p>`}
@@ -729,9 +740,9 @@ const views = {
                 <option value="">— leave uncategorised —</option>
                 ${state.categories.map((c) => `<option value="${c.id}">${c.icon ?? ""} ${escapeHtml(c.name)}</option>`).join("")}
               </select></label>
-            <label class="inline small" style="margin-bottom:1rem">
-              <input type="checkbox" name="mark_transfer" style="width:auto" />
-              Treat matches as internal transfers (excluded from spending)
+            <label class="check small" style="margin-bottom:1rem">
+              <input type="checkbox" name="mark_transfer" />
+              <span>Treat matches as internal transfers (excluded from spending)</span>
             </label>
             <button class="btn btn-primary" type="submit">Add rule</button>
           </form>
@@ -899,10 +910,30 @@ function budgetRow(budget) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Transactions table                                                  */
+/* Transactions list                                                   */
 /* ------------------------------------------------------------------ */
+
+/* "Today" and "Yesterday" read faster than a date, and most of what you look
+   at is recent. Anything older gets the date, with the year left off when it
+   is the current one. */
+function dayHeading(iso) {
+  const date = new Date(iso + "T00:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today - date) / 86_400_000);
+
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return date.toLocaleDateString(undefined, {
+    weekday: days < 7 ? "long" : undefined,
+    day: "numeric",
+    month: "short",
+    year: date.getFullYear() === today.getFullYear() ? undefined : "numeric",
+  });
+}
+
 async function loadTransactions() {
-  const container = document.getElementById("tx-table");
+  const container = document.getElementById("tx-list");
   if (!container) return;
 
   const filters = state.txFilters;
@@ -915,25 +946,38 @@ async function loadTransactions() {
   const page = await api(`/api/transactions?${params}`);
   const accountNames = Object.fromEntries(state.accounts.map((a) => [a.id, a.name]));
 
-  container.innerHTML = page.items.length ? `
-    <table>
-      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Account</th><th class="num">Amount</th></tr></thead>
-      <tbody>${page.items.map((txn) => {
-        const category = state.categories.find((c) => c.id === txn.category_id);
-        return `<tr>
-          <td class="muted small">${formatDate(txn.booked_at)}</td>
-          <td class="trunc">${escapeHtml(txn.merchant || txn.description)}
+  const showAccount = state.accounts.length > 1;
+  let currentDay = null;
+  const rows = page.items.map((txn) => {
+    const category = state.categories.find((c) => c.id === txn.category_id);
+    const heading = txn.booked_at === currentDay
+      ? ""
+      : `<div class="tx-day">${escapeHtml(dayHeading((currentDay = txn.booked_at)))}</div>`;
+
+    return `${heading}
+      <div class="tx-row">
+        <span class="tx-avatar" aria-hidden="true">${category?.icon ?? "•"}</span>
+        <div class="tx-main">
+          <div class="tx-name">${escapeHtml(txn.merchant || txn.description)}</div>
+          <div class="tx-meta">
+            <select class="cat-select" data-txn="${txn.id}" aria-label="Category">
+              <option value="">Uncategorised</option>
+              ${state.categories.map((c) =>
+                `<option value="${c.id}"${c.id === txn.category_id ? " selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+            </select>
+            ${showAccount ? `<span>· ${escapeHtml(accountNames[txn.account_id] ?? "—")}</span>` : ""}
             ${txn.state === "pending" ? `<span class="badge badge-pending">pending</span>` : ""}
-            ${txn.is_transfer ? `<span class="badge">transfer</span>` : ""}</td>
-          <td><select class="cat-select btn-sm" data-txn="${txn.id}">
-            <option value="">— none —</option>
-            ${state.categories.map((c) => `<option value="${c.id}"${c.id === txn.category_id ? " selected" : ""}>${c.icon ?? ""} ${escapeHtml(c.name)}</option>`).join("")}
-          </select></td>
-          <td class="muted small trunc">${escapeHtml(accountNames[txn.account_id] ?? "—")}</td>
-          <td class="num ${amountClass(txn.amount_minor)}">${money(txn.amount_minor, txn.currency, { signed: true })}</td>
-        </tr>`;
-      }).join("")}</tbody>
-    </table>` : `<p class="empty">No transactions match these filters.</p>`;
+            ${txn.is_transfer && category?.name !== "Transfers"
+              ? `<span class="badge">transfer</span>` : ""}
+          </div>
+        </div>
+        <span class="tx-amount ${amountClass(txn.amount_minor)}">${money(txn.amount_minor, txn.currency, { signed: true })}</span>
+      </div>`;
+  }).join("");
+
+  container.innerHTML = page.items.length
+    ? `<div class="tx-list">${rows}</div>`
+    : `<p class="empty">No transactions match these filters.</p>`;
 
   container.querySelectorAll(".cat-select").forEach((select) =>
     select.addEventListener("change", async () => {
@@ -1035,7 +1079,7 @@ function manualAccountDialog() {
         <input type="number" name="balance" step="0.01" value="0" /></label>
       <button class="btn btn-primary btn-block" type="submit">Create account</button>
       <p class="small muted" style="margin-bottom:0">
-        Useful for importing a CSV statement without an API connection.</p>
+        Useful for importing a PDF or CSV statement without an API connection.</p>
     </form>`, (body) => {
     body.querySelector("#account-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1057,18 +1101,18 @@ function manualAccountDialog() {
 }
 
 function importDialog(accountId) {
-  openModal("Import a CSV statement", `
+  openModal("Import a statement", `
     <form id="import-form">
-      <label class="field"><span>Statement file</span>
-        <input type="file" name="file" accept=".csv,text/csv" required /></label>
-      <label class="inline small" style="margin-bottom:1rem">
-        <input type="checkbox" name="recalculate" style="width:auto" />
-        Recalculate the account balance from imported transactions
+      <label class="field"><span>Statement file (PDF or CSV)</span>
+        <input type="file" name="file" accept=".pdf,.csv,application/pdf,text/csv" required /></label>
+      <label class="check small" style="margin-bottom:1rem">
+        <input type="checkbox" name="recalculate" />
+        <span>Recalculate the account balance from imported transactions</span>
       </label>
       <button class="btn btn-primary btn-block" type="submit">Import</button>
       <p class="small muted" style="margin-bottom:0">
-        Works with Revolut's own CSV export. Re-importing an overlapping file is safe —
-        duplicates are detected.</p>
+        Takes the PDF statement Revolut sends you, or its CSV export. Re-importing
+        an overlapping file is safe — duplicates are detected.</p>
     </form>`, (body) => {
     body.querySelector("#import-form").addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -1080,6 +1124,13 @@ function importDialog(accountId) {
         const result = await api(`/api/accounts/${accountId}/import`, { method: "POST", form: payload });
         closeModal();
         toast(`Imported ${result.added} new of ${result.parsed} rows`, "success");
+        if (result.dates_estimated) {
+          // Say so rather than quietly presenting a guess as fact.
+          toast(
+            `${result.dates_estimated} rows had an unreadable date in the PDF and were ` +
+            `dated from the row above them.`,
+          );
+        }
         render();
       } catch (error) {
         toast(error.message, "error");
@@ -1126,6 +1177,54 @@ async function loadReferenceData() {
   state.ai = ai;
 }
 
+/* The tab bar carries four destinations; the rest live behind "More". A view
+   reached that way still has to light up something, so its tab is the "More"
+   button itself. */
+const TAB_VIEWS = new Set(["dashboard", "transactions", "assistant", "budgets"]);
+
+function goToView(view) {
+  state.view = view;
+  closeModal();
+
+  document.querySelectorAll("[data-view]").forEach((item) =>
+    item.classList.toggle("active", item.dataset.view === view));
+  document.getElementById("more-btn").classList.toggle("active", !TAB_VIEWS.has(view));
+
+  document.scrollingElement?.scrollTo({ top: 0 });
+  render();
+}
+
+function openMoreSheet() {
+  const items = [
+    ["recurring", "🔁", "Recurring payments"],
+    ["accounts", "🏦", "Accounts & connections"],
+    ["rules", "⚙️", "Rules"],
+  ];
+
+  openModal("More", `
+    <div class="sheet-nav">
+      ${items.map(([view, icon, label]) =>
+        `<button data-goto="${view}"><span class="nav-icon">${icon}</span>${label}</button>`).join("")}
+      <div class="sheet-divider"></div>
+      <button data-action="sync"><span class="nav-icon">🔄</span>Sync now</button>
+      ${deferredInstall ? `<button data-action="install"><span class="nav-icon">📲</span>Add to home screen</button>` : ""}
+      <button data-action="logout" class="danger"><span class="nav-icon">🚪</span>Sign out</button>
+    </div>`, (body) => {
+    body.querySelectorAll("[data-goto]").forEach((button) =>
+      button.addEventListener("click", () => goToView(button.dataset.goto)));
+    body.querySelector("[data-action='sync']").addEventListener("click", () => {
+      closeModal();
+      syncConnection(null);
+    });
+    body.querySelector("[data-action='install']")?.addEventListener("click", () => {
+      closeModal();
+      promptInstall();
+    });
+    body.querySelector("[data-action='logout']").addEventListener("click", () =>
+      document.getElementById("logout-btn").click());
+  });
+}
+
 async function render() {
   const root = document.getElementById("view");
   document.getElementById("view-title").textContent =
@@ -1165,6 +1264,18 @@ async function showApp() {
 /* ------------------------------------------------------------------ */
 /* Installable app (PWA)                                               */
 /* ------------------------------------------------------------------ */
+/* Held at module scope because the sidebar button is hidden on a phone, and a
+   phone is exactly where installing matters — the More sheet offers it too. */
+let deferredInstall = null;
+
+async function promptInstall() {
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  await deferredInstall.userChoice;
+  deferredInstall = null;
+  document.getElementById("install-btn").classList.add("hidden");
+}
+
 function setupInstall() {
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js").catch(() => {
@@ -1172,24 +1283,20 @@ function setupInstall() {
     });
   }
 
-  let deferredPrompt = null;
   const button = document.getElementById("install-btn");
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
-    deferredPrompt = event;
+    deferredInstall = event;
     button.classList.remove("hidden");
   });
 
-  button.addEventListener("click", async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    await deferredPrompt.userChoice;
-    deferredPrompt = null;
+  button.addEventListener("click", promptInstall);
+
+  window.addEventListener("appinstalled", () => {
+    deferredInstall = null;
     button.classList.add("hidden");
   });
-
-  window.addEventListener("appinstalled", () => button.classList.add("hidden"));
 }
 
 async function boot() {
@@ -1202,13 +1309,11 @@ async function boot() {
     if (event.key === "Escape") closeModal();
   });
 
-  document.querySelectorAll(".nav-item").forEach((button) =>
-    button.addEventListener("click", () => {
-      document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("active"));
-      button.classList.add("active");
-      state.view = button.dataset.view;
-      render();
-    }));
+  // The sidebar and the phone tab bar are two views of the same navigation.
+  document.querySelectorAll("[data-view]").forEach((button) =>
+    button.addEventListener("click", () => goToView(button.dataset.view)));
+
+  document.getElementById("more-btn").addEventListener("click", openMoreSheet);
 
   document.getElementById("sync-btn").addEventListener("click", () => syncConnection(null));
   document.getElementById("logout-btn").addEventListener("click", async () => {

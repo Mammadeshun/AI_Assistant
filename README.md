@@ -106,6 +106,38 @@ instance and registration then closes.
 **No computer at all?** See **[DEPLOY.md](DEPLOY.md)** — it puts this on a free
 host using only a phone browser.
 
+### Does the laptop have to be on?
+
+Yes, if you run it on the laptop. The phone app and the home-screen web app are
+both *clients* — the server holds the data and does the work, so when the laptop
+sleeps or leaves the house, the app on your phone has nothing to talk to.
+
+There is one way round it, and it is the only one: run the server somewhere that
+is always on. **[DEPLOY.md](DEPLOY.md)** puts this on a free host in about ten
+minutes, from a phone browser, no laptop involved. After that the app works from
+anywhere, the twice-daily bank sync keeps running whether or not any device of
+yours is awake, and the laptop becomes optional.
+
+### The API key
+
+The assistant needs an Anthropic API key, which you create at
+<https://console.anthropic.com>. It belongs in one place: the `.env` file, on the
+machine running the server.
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Open `.env` in a text editor, paste the line, save, restart the app. That is the
+whole of "putting Claude in the app" — the Assistant tab lights up, and the
+dashboard gains a written monthly summary.
+
+Treat that key like a bank card. It is tied to your billing, anyone holding it
+can spend your credit, and it is not something to paste into a chat window, a
+screenshot, or a git commit — including a conversation with me. `.env` is in
+`.gitignore` precisely so it cannot be committed by accident. If a key ever does
+get out, revoke it in the console and issue a new one; that costs nothing.
+
 ### If something goes wrong
 
 The launcher explains failures rather than dumping a traceback: a too-old
@@ -170,13 +202,27 @@ Two things to know about this route:
 Access tokens last ~40 minutes and refresh automatically. The refresh token dies
 with the certificate (90 days by default), after which you re-authorise.
 
-### CSV import
+### Statement import — PDF or CSV
 
-Works with no setup at all. In the Revolut app: **Statement → Excel/CSV →
-Download**. Then **Accounts → Add manual account**, and **Import CSV** on it.
+Works with no setup at all, and no bank connection. In the Revolut app:
+**Statement → Download**. Then **Accounts → Add manual account**, and **Import**
+on it.
 
-Re-importing an overlapping file is safe — rows are deduplicated on a hash of
-date, amount, description and reference, so you never get doubles.
+Both formats are read, and the format is worked out from the file rather than
+its name:
+
+- **PDF** — what Revolut gives you by default. The transaction tables are read
+  out of the text layer. Two quirks of those PDFs are handled: euro signs and
+  accented merchant names arrive mangled by the export and are repaired, and
+  rows whose date printed as `########` are kept and dated from the row above,
+  with the app telling you how many were treated that way.
+- **CSV** — the export hidden behind the format choice in the same menu, and
+  the generic date/description/amount shape most other banks produce.
+
+Re-importing an overlapping file is safe. Statement rows carry no id of their
+own, so each is identified by its content plus how many identical rows precede
+it that day — which keeps two identical coffees on one afternoon as two
+transactions, while a second import of the same statement adds nothing.
 
 ## The AI assistant
 

@@ -45,6 +45,8 @@ ROW_TYPES = tuple(
             "Interest",
             "Top-Up",
             "Top-up",
+            "Top up",
+            "Top Up",
             "Transfer",
             "Card",
             "ATM",

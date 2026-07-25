@@ -59,13 +59,13 @@
     <aside class="sidebar">
       <div class="brand">💷 <span>Finances</span></div>
       <nav id="nav">
-        <button class="nav-item active" data-view="dashboard">Dashboard</button>
-        <button class="nav-item" data-view="assistant">Assistant</button>
-        <button class="nav-item" data-view="transactions">Transactions</button>
-        <button class="nav-item" data-view="budgets">Budgets</button>
-        <button class="nav-item" data-view="recurring">Recurring</button>
-        <button class="nav-item" data-view="accounts">Accounts</button>
-        <button class="nav-item" data-view="rules">Rules</button>
+        <button class="nav-item active" data-view="dashboard"><span class="nav-icon">📊</span><span class="nav-label">Dashboard</span></button>
+        <button class="nav-item" data-view="assistant"><span class="nav-icon">✨</span><span class="nav-label">Assistant</span></button>
+        <button class="nav-item" data-view="transactions"><span class="nav-icon">🧾</span><span class="nav-label">Transactions</span></button>
+        <button class="nav-item" data-view="budgets"><span class="nav-icon">🎯</span><span class="nav-label">Budgets</span></button>
+        <button class="nav-item" data-view="recurring"><span class="nav-icon">🔁</span><span class="nav-label">Recurring</span></button>
+        <button class="nav-item" data-view="accounts"><span class="nav-icon">🏦</span><span class="nav-label">Accounts</span></button>
+        <button class="nav-item" data-view="rules"><span class="nav-icon">⚙️</span><span class="nav-label">Rules</span></button>
       </nav>
       <div class="sidebar-foot">
         <button class="btn btn-ghost btn-block hidden" id="install-btn">Install app</button>
@@ -82,6 +82,15 @@
       </header>
       <div id="view" class="view"></div>
     </main>
+
+    <!-- Phone navigation: thumb-reachable, and the only nav on small screens -->
+    <nav class="tabbar" id="tabbar">
+      <button class="tab active" data-view="dashboard"><span class="nav-icon">📊</span><span class="nav-label">Home</span></button>
+      <button class="tab" data-view="transactions"><span class="nav-icon">🧾</span><span class="nav-label">Activity</span></button>
+      <button class="tab" data-view="assistant"><span class="nav-icon">✨</span><span class="nav-label">Ask</span></button>
+      <button class="tab" data-view="budgets"><span class="nav-icon">🎯</span><span class="nav-label">Budgets</span></button>
+      <button class="tab" id="more-btn"><span class="nav-icon">☰</span><span class="nav-label">More</span></button>
+    </nav>
   </div>
 
   <!-- Modal ----------------------------------------------------------- -->

@@ -45,6 +45,15 @@ def test_transaction_type_is_stripped_from_the_description():
     assert transactions[2].description == "Card Delivery Fee"
 
 
+def test_every_transaction_type_is_stripped():
+    # A type the list misses is silently glued to the merchant name, so each
+    # spelling that appears in a real statement is covered here.
+    for suffix in ("Merchant", "Others", "Transfer", "Top up", "Top-Up", "Fees",
+                   "Fee", "Exchange", "Cashback", "Card", "ATM"):
+        transactions = parse_lines([f"01-Dec-23 Payment from Employer{suffix} €10.00 €10.00"])
+        assert transactions[0].description == "Payment from Employer", suffix
+
+
 def test_summary_and_header_rows_are_ignored():
     assert all("Total" not in txn.description for txn in parse_lines(STATEMENT))
 

@@ -34,6 +34,30 @@ Your numbers will differ — use what your window shows. The phone and the lapto
 must be on the same network; your phone's hotspot counts, if the laptop is
 connected to it.
 
+## Turning on the assistant
+
+The Assistant tab stays switched off until you give it a key. Create one at
+<https://console.anthropic.com>, then:
+
+1. Open the folder with `FinancialManager.exe` in it.
+2. Open the `.env` file there with Notepad (right-click → Open with → Notepad).
+3. Find the `ANTHROPIC_API_KEY=` line and paste your key after the `=`, with no
+   spaces and no quotes.
+4. Save, close the black window, and start the app again.
+
+That key is tied to your billing — keep it in that file and nowhere else. Don't
+paste it into a chat, a screenshot, or a message to anyone, including me.
+
+## Does my laptop have to be on?
+
+While the app runs from this .exe, yes: the laptop is the server, and your phone
+is only a window onto it. Close the black window or shut the lid and the app on
+your phone has nothing to talk to.
+
+If you want it available whether or not the laptop is on, run the server on a
+free cloud host instead — see [DEPLOY.md](DEPLOY.md). It takes about ten minutes
+from a phone browser, and afterwards the laptop is optional.
+
 ## Where your data lives
 
 Next to the .exe, in two places:
